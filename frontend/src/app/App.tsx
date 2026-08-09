@@ -18,10 +18,10 @@ import { useTheme } from './useTheme'
 type Tab = 'chat' | 'memory' | 'preferences' | 'activity'
 
 const TABS: Array<{ id: Tab; label: string; icon: IconName }> = [
-  { id: 'chat', label: 'Conversation', icon: 'chat' },
+  { id: 'chat', label: 'Workspace', icon: 'chat' },
   { id: 'memory', label: 'Memory', icon: 'memory' },
-  { id: 'preferences', label: 'Preferences', icon: 'settings' },
   { id: 'activity', label: 'Activity', icon: 'activity' },
+  { id: 'preferences', label: 'Preferences', icon: 'settings' },
 ]
 
 const ONBOARDING_KEY = 'aos-onboarded'
@@ -123,6 +123,8 @@ export function App() {
   }
 
   const memoryCount = Object.keys(session.memory).length
+  const rawName = session.preferences.user_name
+  const userName = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : null
 
   const sidebar = (
     <div className="sidebar">
@@ -157,20 +159,8 @@ export function App() {
             setDrawerOpen(false)
           }}
         >
-          <Icon name="refresh" size={16} />
+          <Icon name="plus" size={16} />
           New session
-        </button>
-        <button
-          type="button"
-          className="btn btn--subtle"
-          onClick={() => {
-            setConfirming('history')
-            setDrawerOpen(false)
-          }}
-          disabled={session.ended || session.history.length === 0}
-        >
-          <Icon name="trash" size={16} />
-          Clear history
         </button>
         <button
           type="button"
@@ -184,6 +174,15 @@ export function App() {
           <Icon name="power" size={16} />
           End session
         </button>
+        <div className="sidebar__identity">
+          <span className="sidebar__avatar" aria-hidden="true">
+            {userName ? userName.charAt(0).toUpperCase() : 'A'}
+          </span>
+          <span className="sidebar__who">
+            <span>{userName ?? session.agent_name}</span>
+            <span className="sidebar__meta">v{session.version} · local</span>
+          </span>
+        </div>
       </div>
     </div>
   )
@@ -207,25 +206,23 @@ export function App() {
           <span className="brand__mark" aria-hidden="true">
             A
           </span>
-          <div>
-            <h1 className="brand__name" style={{ fontSize: 'var(--text-l)' }}>
-              {session.agent_name}
-            </h1>
-          </div>
-          <span className="brand__version">v{session.version}</span>
+          <h1 className="brand__name">{session.agent_name}</h1>
+        </div>
+        <div className="header__search">
+          <button
+            type="button"
+            className="searchbtn"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search or run a command (Ctrl+K)"
+          >
+            <Icon name="search" size={16} />
+            <span className="searchbtn__text">Search or run a command</span>
+            <kbd>Ctrl K</kbd>
+          </button>
         </div>
         <div className="header__spacer" />
         <StatusBadge status={status} />
         <div className="header__actions">
-          <button
-            type="button"
-            className="iconbtn iconbtn--palette"
-            aria-label="Search commands (Ctrl+K)"
-            title="Search commands (Ctrl+K)"
-            onClick={() => setPaletteOpen(true)}
-          >
-            <Icon name="command" />
-          </button>
           <button
             type="button"
             className="iconbtn"
@@ -267,6 +264,7 @@ export function App() {
               sending={store.sending}
               failedText={store.failedText}
               offline={status === 'offline'}
+              userName={userName}
               onSend={(text) => void store.send(text)}
               onRetry={() => void store.retryFailed()}
               onDismissFailed={store.dismissFailed}
@@ -278,8 +276,11 @@ export function App() {
               memory={session.memory}
               disabled={session.ended}
               onAdd={store.addMemory}
+              onUpdate={store.updateMemory}
               onDelete={store.deleteMemory}
               onClearAll={store.clearMemory}
+              onExport={store.exportData}
+              onClearHistory={() => setConfirming('history')}
             />
           ) : null}
           {tab === 'preferences' ? (
@@ -289,45 +290,58 @@ export function App() {
               onSet={store.setPreference}
             />
           ) : null}
-          {tab === 'activity' ? <ActivityView events={store.events} /> : null}
+          {tab === 'activity' ? (
+            <ActivityView
+              events={store.events}
+              session={session}
+              status={status}
+              lastSyncedAt={store.lastSyncedAt}
+            />
+          ) : null}
         </main>
 
-        <aside className="rail" aria-label="Session overview">
-          <div className="rail__section">
-            <h2 className="rail__title">Session</h2>
-            <dl>
-              <div className="rail__row">
-                <dt>Agent</dt>
-                <dd>{session.agent_name}</dd>
-              </div>
-              <div className="rail__row">
-                <dt>Messages</dt>
-                <dd>{session.transcript.length}</dd>
-              </div>
-              <div className="rail__row">
-                <dt>Memory entries</dt>
-                <dd>{memoryCount}</dd>
-              </div>
-              <div className="rail__row">
-                <dt>Tone</dt>
-                <dd>{String(session.preferences.tone ?? 'friendly')}</dd>
-              </div>
-            </dl>
-          </div>
-          <div className="rail__section">
-            <h2 className="rail__title">Recent activity</h2>
-            {store.events.length === 0 ? (
-              <p className="rail__event">No activity yet.</p>
-            ) : (
-              store.events.slice(0, 6).map((event) => (
-                <p key={event.id} className="rail__event">
-                  <span className={`dot dot--${event.kind}`} aria-hidden="true" />
-                  {event.label}
-                </p>
-              ))
-            )}
-          </div>
-        </aside>
+        {tab === 'chat' ? (
+          <aside className="rail" aria-label="Session overview">
+            <div className="rail__section">
+              <h2 className="rail__title">Session context</h2>
+              <dl>
+                <div className="rail__row">
+                  <dt>Agent</dt>
+                  <dd>{session.agent_name}</dd>
+                </div>
+                <div className="rail__row">
+                  <dt>Messages</dt>
+                  <dd>{session.transcript.length}</dd>
+                </div>
+                <div className="rail__row">
+                  <dt>Memory entries</dt>
+                  <dd>{memoryCount}</dd>
+                </div>
+                <div className="rail__row">
+                  <dt>Tone</dt>
+                  <dd>{String(session.preferences.tone ?? 'friendly')}</dd>
+                </div>
+                <div className="rail__row">
+                  <dt>Language</dt>
+                  <dd>{String(session.preferences.language ?? 'English')}</dd>
+                </div>
+              </dl>
+            </div>
+            <div className="rail__section">
+              <h2 className="rail__title">Recent activity</h2>
+              {store.events.length === 0 ? (
+                <p className="rail__event">No activity yet.</p>
+              ) : (
+                store.events.slice(0, 6).map((event) => (
+                  <p key={event.id} className="rail__event">
+                    <span className={`dot dot--${event.kind}`} aria-hidden="true" />
+                    {event.label}
+                  </p>
+                ))
+              )}
+            </div>
+          </aside>
+        ) : null}
       </div>
 
       {paletteOpen ? (

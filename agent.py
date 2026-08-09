@@ -150,6 +150,21 @@ class Agent:
             return f"Removed {target}."
         return f"No saved information found for {target}. Enter /recall to list keys."
 
+    def update_memory(self, key, information):
+        """Replace the text stored under an existing memory key in place.
+
+        Used by the web interface's edit control; returns a user-facing
+        message either way so callers never need to raise.
+        """
+        information = information.strip() if isinstance(information, str) else ""
+        if not information:
+            return "Please provide information to remember."
+        if key not in self.memory:
+            return f"No saved information found for {key}. Enter /recall to list keys."
+        self.memory[key] = information
+        self._save_memory()
+        return "Information updated."
+
     def _next_memory_key(self):
         """Build a unique key even after entries have been deleted."""
         highest = 0

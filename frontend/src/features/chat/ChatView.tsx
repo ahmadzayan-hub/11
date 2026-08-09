@@ -19,11 +19,17 @@ export const SUGGESTIONS: Suggestion[] = [
   { label: 'Show session history', icon: 'clock', insert: '/history' },
 ]
 
+function greetingFor(hour: number, name: string | null): string {
+  const period = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
+  return name ? `${period}, ${name}` : period
+}
+
 interface ChatViewProps {
   session: SessionState
   sending: boolean
   failedText: string | null
   offline: boolean
+  userName: string | null
   onSend: (text: string) => void
   onRetry: () => void
   onDismissFailed: () => void
@@ -35,6 +41,7 @@ export function ChatView({
   sending,
   failedText,
   offline,
+  userName,
   onSend,
   onRetry,
   onDismissFailed,
@@ -67,11 +74,11 @@ export function ChatView({
       <div className="chat__scroll" ref={scrollRef} onScroll={handleScroll}>
         {empty ? (
           <div className="chat__empty">
-            <h2>{session.welcome}</h2>
-            <p>
-              Ask anything, or start with one of these. Commands always begin with{' '}
-              <kbd>/</kbd> — you can browse them any time with <kbd>Ctrl</kbd>+<kbd>K</kbd>.
-            </p>
+            <div className="hero__orb" aria-hidden="true">
+              <Icon name="sparkle" size={26} />
+            </div>
+            <h2 className="hero__greeting">{greetingFor(new Date().getHours(), userName)}</h2>
+            <p className="hero__question">What would you like to accomplish?</p>
             <div className="suggestions">
               {SUGGESTIONS.map((suggestion) => (
                 <button
@@ -85,11 +92,15 @@ export function ChatView({
                 </button>
               ))}
             </div>
+            <p className="hero__hint">
+              {session.welcome} Commands begin with <kbd>/</kbd> — browse them any time with{' '}
+              <kbd>Ctrl</kbd>+<kbd>K</kbd>.
+            </p>
           </div>
         ) : (
           <div className="chat__stream" aria-live="polite">
             {session.transcript.map((entry) => (
-              <MessageBubble key={entry.id} entry={entry} />
+              <MessageBubble key={entry.id} entry={entry} agentName={session.agent_name} />
             ))}
             {sending ? (
               <div className="typing" role="status" aria-label="The agent is preparing a response">

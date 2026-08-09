@@ -114,11 +114,22 @@ splitting would add loading states with no measurable payload benefit
 
 ## 11. Verified Results (measured on the final build)
 
-- Tests: Python 59/59 · frontend unit 18/18 · Playwright e2e 15/15
+A second design pass restyled the application against a set of
+high-fidelity visual targets (dark-first "Agentic OS" identity, greeting
+hero, centered command search, activity timeline with system states, and
+a full memory/privacy control model). Every visual target was implemented
+only where the backend genuinely supports it; controls the backend cannot
+perform (file upload, voice input, multi-workspace switching) were
+deliberately omitted rather than mocked. The pass added real capabilities:
+in-place memory editing, JSON data export, a user-name greeting
+preference, a three-state theme (dark/light/system), a reduced-motion
+switch, and a session-health view.
+
+- Tests: Python 66/66 · frontend unit 18/18 · Playwright e2e 15/15
   (1 desktop-only check skipped on the mobile project by design);
-  `tsc --noEmit` clean; production build clean (69.2 KB gzipped JS,
-  4.5 KB gzipped CSS, system fonts, no external requests).
-- Lighthouse 13.x, mobile emulation, production server: **Performance 97 ·
+  `tsc --noEmit` clean; production build clean (71.4 KB gzipped JS,
+  5.4 KB gzipped CSS, system fonts, no external requests).
+- Lighthouse 13.x, mobile emulation, production server: **Performance 96 ·
   Accessibility 100 · Best Practices 100 · SEO 100**; LCP 2.3 s · CLS 0 ·
   TBT 0 ms. (The experimental "agentic-browsing" category scores 67 — it
   recommends publishing an llms.txt file, which is out of scope for a

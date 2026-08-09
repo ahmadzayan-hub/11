@@ -2,14 +2,24 @@ import { useCallback, useSyncExternalStore } from 'react'
 
 const THEME_KEY = 'aos-theme'
 
+export type ThemeChoice = 'light' | 'dark' | 'system'
+
+function currentChoice(): ThemeChoice {
+  const stamped = document.documentElement.dataset.theme
+  return stamped === 'light' || stamped === 'dark' ? stamped : 'system'
+}
+
 function effectiveIsDark(): boolean {
-  const stored = document.documentElement.dataset.theme
-  if (stored === 'dark') return true
-  if (stored === 'light') return false
+  const choice = currentChoice()
+  if (choice !== 'system') return choice === 'dark'
   return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
 let listeners: Array<() => void> = []
+
+function notify() {
+  listeners.forEach((listener) => listener())
+}
 
 function subscribe(listener: () => void) {
   listeners.push(listener)
@@ -21,21 +31,30 @@ function subscribe(listener: () => void) {
   }
 }
 
-/** Light/dark theme with persistence. The saved choice is applied before
- *  first paint by an inline script in index.html to avoid flashing. */
+/** Theme with three states: light, dark, or follow the system. The saved
+ *  choice is applied before first paint by an inline script in index.html. */
 export function useTheme() {
   const isDark = useSyncExternalStore(subscribe, effectiveIsDark)
+  const theme = useSyncExternalStore(subscribe, currentChoice)
 
-  const toggleTheme = useCallback(() => {
-    const next = effectiveIsDark() ? 'light' : 'dark'
-    document.documentElement.dataset.theme = next
+  const setTheme = useCallback((choice: ThemeChoice) => {
+    if (choice === 'system') {
+      delete document.documentElement.dataset.theme
+    } else {
+      document.documentElement.dataset.theme = choice
+    }
     try {
-      localStorage.setItem(THEME_KEY, next)
+      if (choice === 'system') localStorage.removeItem(THEME_KEY)
+      else localStorage.setItem(THEME_KEY, choice)
     } catch {
       /* private mode — theme resets next visit */
     }
-    listeners.forEach((listener) => listener())
+    notify()
   }, [])
 
-  return { isDark, toggleTheme }
+  const toggleTheme = useCallback(() => {
+    setTheme(effectiveIsDark() ? 'light' : 'dark')
+  }, [setTheme])
+
+  return { theme, isDark, setTheme, toggleTheme }
 }

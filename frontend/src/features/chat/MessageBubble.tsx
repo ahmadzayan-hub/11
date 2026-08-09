@@ -8,7 +8,12 @@ function formatTime(iso: string): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-export function MessageBubble({ entry }: { entry: TranscriptEntry }) {
+interface MessageBubbleProps {
+  entry: TranscriptEntry
+  agentName: string
+}
+
+export function MessageBubble({ entry, agentName }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false)
   const isAgent = entry.role === 'agent'
 
@@ -24,15 +29,25 @@ export function MessageBubble({ entry }: { entry: TranscriptEntry }) {
 
   return (
     <article className={`msg msg--${entry.role}`} aria-label={isAgent ? 'Agent message' : 'Your message'}>
+      {isAgent ? (
+        <div className="msg__head">
+          <span className="msg__avatar" aria-hidden="true">
+            A
+          </span>
+          <span className="msg__author">{agentName}</span>
+          <time dateTime={entry.time}>{formatTime(entry.time)}</time>
+        </div>
+      ) : null}
       <div className="msg__bubble">{entry.text}</div>
       <div className="msg__meta">
-        <time dateTime={entry.time}>{formatTime(entry.time)}</time>
         {isAgent ? (
           <button type="button" className="msg__copy" onClick={copy}>
             <Icon name={copied ? 'check' : 'copy'} size={13} />
             {copied ? 'Copied' : 'Copy'}
           </button>
-        ) : null}
+        ) : (
+          <time dateTime={entry.time}>{formatTime(entry.time)}</time>
+        )}
       </div>
     </article>
   )

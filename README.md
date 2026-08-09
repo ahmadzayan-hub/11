@@ -8,28 +8,32 @@ remembers information between sessions.
 In this project, "operating system" means an intelligent assistant
 environment — not a replacement for Windows, macOS, or Linux.
 
-![Agentic OS — desktop, light theme](docs/screenshots/desktop-chat-light.png)
+![Agentic OS — workspace, dark theme](docs/screenshots/desktop-hero-dark.png)
 
 ## Main Features
 
-- **Web workspace** — a responsive React application with a conversation
-  view, memory manager, preferences panel, live activity feed, command
-  palette (Ctrl/⌘+K), onboarding, and light/dark themes
+- **Web workspace** — a responsive React application with a greeting hero,
+  conversation view, centered command search and palette (Ctrl/⌘+K),
+  activity timeline with session health, onboarding, and a token-based
+  design system with dark, light, and system themes
 - **Command-line interface** — the original `python main.py` experience,
   fully preserved and dependency-free
 - **One brain, two faces** — both interfaces drive the same tested Python
   `Agent` class; no logic is duplicated in the frontend
 - **Persistent memory** in `data/memory.json` that survives restarts, with
-  add/delete/clear-all controls and confirmation before destructive actions
-- **Preferences** (tone, language, history recording) changeable at runtime
-  and applied to responses immediately
+  search, add, **in-place edit**, delete, and delete-all controls —
+  destructive actions always require confirmation
+- **Data controls** — export everything (memory, preferences, history,
+  transcript) as JSON, clear history, or delete all memory from one place
+- **Preferences** (tone, your name, language, history recording) applied to
+  responses immediately, plus interface settings (theme, reduced motion)
 - **Production-quality states** — loading, empty, success, error, offline,
   and retry paths for every workflow
 - **Accessibility** — WCAG 2.2 AA verified by automated axe scans plus
   keyboard review; full keyboard operation, focus-trapped dialogs,
-  reduced-motion support
+  reduced-motion support (system setting and in-app switch)
 - **Measured performance** — Lighthouse (mobile emulation, production
-  build): Performance 97, Accessibility 100, Best Practices 100, SEO 100;
+  build): Performance 96, Accessibility 100, Best Practices 100, SEO 100;
   LCP 2.3 s, CLS 0, TBT 0 ms
 
 ## Architecture
@@ -119,7 +123,7 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, and API tests (59 tests)
+# Python: agent, utils, and API tests (66 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (18 tests)
@@ -133,7 +137,7 @@ cd frontend && npx playwright test
 cd frontend && npm run typecheck
 ```
 
-All 92 tests pass on the submitted version. In environments with a
+All 99 tests pass on the submitted version. In environments with a
 pre-installed browser, point Playwright at it:
 `PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium npx playwright test`.
 
@@ -142,11 +146,13 @@ pre-installed browser, point Playwright at it:
 1. Open the app — a short onboarding explains the basics.
 2. Type `Hello there` and press Enter, or pick a suggested action.
 3. Press <kbd>Ctrl</kbd>+<kbd>K</kbd>, choose `/remember`, and save a fact.
-4. Open **Memory** to see, delete, or clear saved entries.
-5. Open **Preferences** and switch the tone to *Concise* — replies change
-   immediately.
-6. Use **Clear history** or **End session** in the sidebar; both ask for
-   confirmation where destructive.
+4. Open **Memory** to search, edit, delete, or export what's saved — the
+   **Data controls** card also clears history or deletes all memory, always
+   with a confirmation step.
+5. Open **Preferences**, switch the tone to *Concise* (replies change
+   immediately), and set your name for a personal greeting.
+6. Check **Activity** for the event timeline and session health, and use
+   **End session** in the sidebar to close gracefully.
 
 The same commands work in the CLI:
 

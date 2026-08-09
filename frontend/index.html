@@ -14,14 +14,17 @@
     />
     <title>Agentic OS</title>
     <script>
-      // Apply the saved theme before first paint to avoid a flash.
+      // Apply the saved theme and motion settings before first paint.
       try {
         var theme = localStorage.getItem('aos-theme')
         if (theme === 'light' || theme === 'dark') {
           document.documentElement.dataset.theme = theme
         }
+        if (localStorage.getItem('aos-motion') === 'reduce') {
+          document.documentElement.dataset.motion = 'reduce'
+        }
       } catch (error) {
-        /* localStorage unavailable — system theme applies */
+        /* localStorage unavailable — system settings apply */
       }
     </script>
   </head>

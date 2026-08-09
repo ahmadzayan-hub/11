@@ -82,6 +82,7 @@ class Session:
             "preferences": dict(self.agent.preferences),
             "memory": dict(self.agent.memory),
             "history": list(self.agent.history),
+            "memory_persisted": bool(self.agent.memory_file),
             "commands": COMMANDS,
         }
 
@@ -247,6 +248,34 @@ def create_app(config_path=None):
             session = get_session(session_id)
             reply = session.agent.process_input(f"/remember {information}")
             return {"reply_text": reply, "state": session.snapshot()}
+
+    @app.put("/api/sessions/{session_id}/memory/{key}")
+    def update_memory(session_id: str, key: str, memory: MemoryIn):
+        information = clean_single_line(memory.information, "Memory text")
+        with lock:
+            session = get_session(session_id)
+            if key not in session.agent.memory:
+                raise HTTPException(status_code=404, detail=f"No memory named {key}.")
+            reply = session.agent.update_memory(key, information)
+            return {"reply_text": reply, "state": session.snapshot()}
+
+    @app.get("/api/sessions/{session_id}/export")
+    def export_data(session_id: str):
+        with lock:
+            session = get_session(session_id)
+            return JSONResponse(
+                content={
+                    "exported_at": now_iso(),
+                    "agent_name": session.agent.name,
+                    "preferences": dict(session.agent.preferences),
+                    "memory": dict(session.agent.memory),
+                    "history": list(session.agent.history),
+                    "transcript": session.transcript,
+                },
+                headers={
+                    "Content-Disposition": 'attachment; filename="agentic-os-export.json"'
+                },
+            )
 
     @app.delete("/api/sessions/{session_id}/memory/{key}")
     def delete_memory(session_id: str, key: str):

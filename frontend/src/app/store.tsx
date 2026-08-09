@@ -15,6 +15,7 @@ interface Store {
   sending: boolean
   failedText: string | null
   events: ActivityEvent[]
+  lastSyncedAt: string | null
   start: () => Promise<void>
   send: (text: string) => Promise<void>
   retryFailed: () => Promise<void>
@@ -22,8 +23,10 @@ interface Store {
   clearHistory: () => Promise<OperationOutcome>
   setPreference: (key: string, value: string) => Promise<OperationOutcome>
   addMemory: (information: string) => Promise<OperationOutcome>
+  updateMemory: (key: string, information: string) => Promise<OperationOutcome>
   deleteMemory: (key: string) => Promise<OperationOutcome>
   clearMemory: () => Promise<OperationOutcome>
+  exportData: () => Promise<OperationOutcome>
   endSession: () => Promise<OperationOutcome>
 }
 
@@ -45,6 +48,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [failedText, setFailedText] = useState<string | null>(null)
   const [offline, setOffline] = useState(!navigator.onLine)
   const [lastError, setLastError] = useState(false)
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
   const pendingCount = useRef(0)
   const [pending, setPending] = useState(0)
 
@@ -95,6 +99,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setSession(state)
       setFailedText(null)
       setLastError(false)
+      setLastSyncedAt(new Date().toISOString())
       pushEvent('Session started', 'success', state.agent_name)
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not start a session.'
@@ -126,6 +131,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const result = await api.sendMessage(session.session_id, text)
         setSession(result.state)
         setLastError(false)
+        setLastSyncedAt(new Date().toISOString())
         pushEvent('Request completed', 'info', text.length > 60 ? `${text.slice(0, 60)}…` : text)
         if (result.state.ended) pushEvent('Session ended', 'info')
       } catch (error) {
@@ -162,6 +168,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const result = await operation(session.session_id)
         setSession(result.state)
         setLastError(false)
+        setLastSyncedAt(new Date().toISOString())
         pushEvent(successLabel, 'success', result.reply_text)
         return { ok: true, message: result.reply_text }
       } catch (error) {
@@ -190,6 +197,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (information: string) => runOperation((id) => api.addMemory(id, information), 'Memory saved'),
     [runOperation],
   )
+  const updateMemory = useCallback(
+    (key: string, information: string) =>
+      runOperation((id) => api.updateMemory(id, key, information), 'Memory updated'),
+    [runOperation],
+  )
   const deleteMemory = useCallback(
     (key: string) => runOperation((id) => api.deleteMemory(id, key), 'Memory removed'),
     [runOperation],
@@ -198,6 +210,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => runOperation((id) => api.clearMemory(id), 'Memory cleared'),
     [runOperation],
   )
+
+  const exportData = useCallback(async (): Promise<OperationOutcome> => {
+    if (!session) return { ok: false, message: 'No active session.' }
+    beginWork()
+    try {
+      const payload = await api.exportData(session.session_id)
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'agentic-os-export.json'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      setLastSyncedAt(new Date().toISOString())
+      pushEvent('Data exported', 'success', 'agentic-os-export.json')
+      return { ok: true, message: 'Your data was downloaded as agentic-os-export.json.' }
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'The export failed.'
+      pushEvent('Data export failed', 'error', message)
+      return { ok: false, message }
+    } finally {
+      endWork()
+    }
+  }, [session, beginWork, endWork, pushEvent])
 
   const endSession = useCallback(async (): Promise<OperationOutcome> => {
     if (!session) return { ok: false, message: 'No active session.' }
@@ -234,6 +272,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sending,
       failedText,
       events,
+      lastSyncedAt,
       start,
       send,
       retryFailed,
@@ -241,8 +280,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       clearHistory,
       setPreference,
       addMemory,
+      updateMemory,
       deleteMemory,
       clearMemory,
+      exportData,
       endSession,
     }),
     [
@@ -252,6 +293,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sending,
       failedText,
       events,
+      lastSyncedAt,
       start,
       send,
       retryFailed,
@@ -259,8 +301,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       clearHistory,
       setPreference,
       addMemory,
+      updateMemory,
       deleteMemory,
       clearMemory,
+      exportData,
       endSession,
     ],
   )

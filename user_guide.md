@@ -23,12 +23,14 @@ appears once and can be dismissed permanently.
 
 ### The workspace at a glance
 
-- **Header** — product identity, live session status (Ready, Working,
-  Offline, Error, or Session ended), command search, theme toggle, and help.
-- **Sidebar** — switches between Conversation, Memory, Preferences, and
-  Activity, plus quick actions: New session, Clear history, End session.
-  On phones and tablets it opens as a drawer from the menu button.
-- **Conversation** — your messages and the agent's replies, with
+- **Header** — product identity, a centered command search (opens the
+  palette), live session status (Ready, Working, Offline, Error, or
+  Session ended), theme toggle, and help.
+- **Sidebar** — switches between Workspace, Memory, Activity, and
+  Preferences, plus New session and End session. On phones and tablets it
+  opens as a drawer from the menu button.
+- **Workspace** — a greeting hero with suggested actions when the
+  conversation is empty, then your messages and the agent's replies with
   timestamps, a copy button on agent replies, and auto-scroll that pauses
   while you read older messages (a **Latest** button jumps back down).
 - **Context panel** (large screens) — session facts and recent activity.
@@ -50,26 +52,38 @@ You never need to memorize commands:
 If a message fails to send (for example, offline), it is not lost — a
 retry option appears, and the status badge shows the connection state.
 
-### Managing memory
+### Managing memory and your data
 
-Open **Memory** to see everything the agent has saved. From there you can
-add an entry, delete a single entry, or clear everything (with a
-confirmation step). Memory is stored in `data/memory.json` on the machine
-running the server and persists between sessions and restarts. Do not
-store passwords or confidential information.
+Open **Memory** to see everything the agent has saved. You can search
+entries, add new ones, **edit any entry in place**, delete a single entry,
+or delete everything. The **Data controls** card provides:
+
+- **Export my data** — downloads memory, preferences, history, and the
+  transcript as `agentic-os-export.json`.
+- **Clear conversation history** — removes this session's history only.
+- **Delete all memory** — permanently removes every saved entry.
+
+Destructive actions always require confirmation. Memory is stored in
+`data/memory.json` on the machine running the server and persists between
+sessions and restarts. Do not store passwords or confidential information.
 
 ### Preferences
 
 Open **Preferences** to switch the response tone (Friendly, Concise, or
-Formal — replies change immediately), set the language label, and turn
-session-history recording on or off. Changes apply to the current session;
-permanent defaults are edited in `config.json`.
+Formal — replies change immediately), set **your name** (used in the
+workspace greeting), set the language label, and turn session-history
+recording on or off. Changes apply to the current session; permanent
+defaults are edited in `config.json`. The **Interface** card holds
+browser-side settings: theme (Dark, Light, or System) and a reduced-motion
+switch.
 
 ### Activity
 
-Open **Activity** for a timestamped feed of real events: session started,
-memory saved, preference changed, history cleared, requests completed or
-failed, and connection changes.
+Open **Activity** for a timestamped timeline of real events — session
+started, memory saved, preference changed, history cleared, requests
+completed or failed, and connection changes — alongside a **Session
+health** card showing connection state, whether memory persistence is
+active, entry counts, and the time of the last successful response.
 
 ### Themes and accessibility
 

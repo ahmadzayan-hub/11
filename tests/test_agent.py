@@ -114,6 +114,22 @@ class TestMemory(unittest.TestCase):
         self.assertEqual(response, "Information saved.")
         self.assertIn("memory_1", self.agent.memory)
 
+    def test_update_memory_replaces_text_in_place(self):
+        self.agent.process_input("/remember Old fact")
+        response = self.agent.update_memory("memory_1", "New fact")
+        self.assertEqual(response, "Information updated.")
+        self.assertEqual(self.agent.memory, {"memory_1": "New fact"})
+
+    def test_update_memory_unknown_key(self):
+        response = self.agent.update_memory("memory_9", "Anything")
+        self.assertIn("No saved information found", response)
+
+    def test_update_memory_rejects_empty_text(self):
+        self.agent.process_input("/remember Keep me")
+        response = self.agent.update_memory("memory_1", "   ")
+        self.assertEqual(response, "Please provide information to remember.")
+        self.assertEqual(self.agent.memory["memory_1"], "Keep me")
+
     def test_memory_keys_stay_unique_after_deletion(self):
         self.agent.process_input("/remember First")
         self.agent.process_input("/remember Second")

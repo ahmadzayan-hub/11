@@ -28,24 +28,38 @@ test.describe('main user journey', () => {
     await sendMessage(page, '/remember My preferred language is English')
     await expect(lastAgentBubble(page)).toHaveText('Information saved.')
 
-    // 4. Manage memory in the Memory panel.
+    // 4. Manage memory in the Memory panel: add, edit, export, delete.
     await openTab(page, /^Memory/)
     await expect(page.getByText('My preferred language is English')).toBeVisible()
 
     await page.getByLabel('Information to remember').fill('Coffee at 8am')
-    await page.getByRole('button', { name: 'Remember' }).click()
+    await page.getByRole('button', { name: 'Add memory' }).click()
     await expect(page.getByText('Coffee at 8am')).toBeVisible()
     await expect(page.locator('.memory__item')).toHaveCount(2)
+
+    await page.getByRole('button', { name: 'Edit memory_2' }).click()
+    await page.getByLabel('Edit memory_2').fill('Coffee at 7am sharp')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByText('Coffee at 7am sharp')).toBeVisible()
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: /Export my data/ }).click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toBe('agentic-os-export.json')
 
     await page.getByRole('button', { name: /Forget memory_2/ }).click()
     await expect(page.locator('.memory__item')).toHaveCount(1)
 
-    // 5. Change a preference and see it applied to replies.
+    // 5. Change preferences and see them applied to replies.
     await openTab(page, /^Preferences/)
     await page.getByRole('button', { name: 'Concise' }).click()
     await expect(page.getByText('Preference updated: tone = concise.')).toBeVisible()
 
-    await openTab(page, /^Conversation/)
+    await page.getByLabel('Your name').fill('Ahmad')
+    await page.getByRole('button', { name: 'Save', exact: true }).first().click()
+    await expect(page.getByText('Preference updated: user_name = Ahmad.')).toBeVisible()
+
+    await openTab(page, /^Workspace/)
     await sendMessage(page, 'Ping')
     await expect(lastAgentBubble(page)).toHaveText('Received: "Ping". See /help for commands.')
 
@@ -54,20 +68,23 @@ test.describe('main user journey', () => {
     await expect(lastAgentBubble(page)).toContainText('Hello there')
     await expect(lastAgentBubble(page)).toContainText('Ping')
 
-    // 7. Clear history with confirmation.
-    await clickQuickAction(page, /^Clear history/)
+    // 7. Clear history with confirmation (from Memory > Data controls).
+    await openTab(page, /^Memory/)
+    await page.getByRole('button', { name: /Clear conversation history/ }).click()
     const confirmClear = page.getByRole('dialog', { name: 'Clear conversation history?' })
     await expect(confirmClear).toBeVisible()
     await confirmClear.getByRole('button', { name: 'Clear history' }).click()
     await expect(confirmClear).toBeHidden()
+
+    await openTab(page, /^Workspace/)
     await sendMessage(page, '/history')
     await expect(lastAgentBubble(page)).toHaveText('No conversation history is available.')
 
-    // 8. Clear all memory with confirmation (also resets shared e2e state).
+    // 8. Delete all memory with confirmation (also resets shared e2e state).
     await openTab(page, /^Memory/)
-    await page.getByRole('button', { name: 'Clear all' }).click()
-    const confirmMemory = page.getByRole('dialog', { name: 'Clear all memory?' })
-    await confirmMemory.getByRole('button', { name: 'Clear all memory' }).click()
+    await page.getByRole('button', { name: /Delete all memory/ }).click()
+    const confirmMemory = page.getByRole('dialog', { name: 'Delete all memory?' })
+    await confirmMemory.getByRole('button', { name: 'Delete all memory' }).click()
     await expect(page.getByText('Nothing saved yet.', { exact: false })).toBeVisible()
 
     // 9. End the session gracefully, then start a new one.
@@ -76,7 +93,7 @@ test.describe('main user journey', () => {
     await confirmEnd.getByRole('button', { name: 'End session' }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Session ended' })).toBeVisible()
 
-    await openTab(page, /^Conversation/)
+    await openTab(page, /^Workspace/)
     await expect(page.getByText('This session has ended.', { exact: false }).first()).toBeVisible()
     await expect(composerInput(page)).toBeDisabled()
 

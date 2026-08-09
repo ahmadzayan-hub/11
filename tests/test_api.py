@@ -116,6 +116,49 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(deleted.status_code, 200)
         self.assertEqual(deleted.json()["state"]["memory"], {})
 
+    def test_update_memory_edits_in_place_and_persists(self):
+        state = self.open_session()
+        sid = state["session_id"]
+        added = self.client.post(
+            f"/api/sessions/{sid}/memory", json={"information": "Old text"}
+        )
+        key = next(iter(added.json()["state"]["memory"]))
+        updated = self.client.put(
+            f"/api/sessions/{sid}/memory/{key}", json={"information": "New text"}
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["state"]["memory"][key], "New text")
+        self.assertEqual(
+            json.loads(self.memory_path.read_text(encoding="utf-8"))[key], "New text"
+        )
+
+    def test_update_unknown_memory_returns_404(self):
+        state = self.open_session()
+        response = self.client.put(
+            f"/api/sessions/{state['session_id']}/memory/memory_9",
+            json={"information": "x"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_export_returns_full_data_as_attachment(self):
+        state = self.open_session()
+        sid = state["session_id"]
+        self.client.post(f"/api/sessions/{sid}/messages", json={"text": "Hello"})
+        self.client.post(
+            f"/api/sessions/{sid}/memory", json={"information": "A fact"}
+        )
+        response = self.client.get(f"/api/sessions/{sid}/export")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment", response.headers["content-disposition"])
+        body = response.json()
+        self.assertIn("A fact", body["memory"].values())
+        self.assertEqual(body["history"], ["Hello", "/remember A fact"])
+        self.assertEqual(len(body["transcript"]), 2)
+
+    def test_snapshot_reports_memory_persistence(self):
+        state = self.open_session()
+        self.assertTrue(state["memory_persisted"])
+
     def test_delete_unknown_memory_returns_404(self):
         state = self.open_session()
         response = self.client.delete(

@@ -24,7 +24,17 @@ export interface SessionState {
   preferences: Record<string, PreferenceValue>
   memory: Record<string, string>
   history: string[]
+  memory_persisted: boolean
   commands: CommandInfo[]
+}
+
+export interface ExportPayload {
+  exported_at: string
+  agent_name: string
+  preferences: Record<string, PreferenceValue>
+  memory: Record<string, string>
+  history: string[]
+  transcript: TranscriptEntry[]
 }
 
 export type ActivityKind = 'info' | 'success' | 'error'

@@ -1,4 +1,4 @@
-import type { SessionState, TranscriptEntry } from './types'
+import type { ExportPayload, SessionState, TranscriptEntry } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 const REQUEST_TIMEOUT_MS = 10_000
@@ -91,10 +91,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ information }),
     }),
+  updateMemory: (id: string, key: string, information: string) =>
+    request<OperationResult>(`/api/sessions/${id}/memory/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ information }),
+    }),
   deleteMemory: (id: string, key: string) =>
     request<OperationResult>(`/api/sessions/${id}/memory/${encodeURIComponent(key)}`, {
       method: 'DELETE',
     }),
+  exportData: (id: string) => request<ExportPayload>(`/api/sessions/${id}/export`),
   clearMemory: (id: string) =>
     request<OperationResult>(`/api/sessions/${id}/memory`, { method: 'DELETE' }),
 }
