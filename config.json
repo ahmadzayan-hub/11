@@ -1,0 +1,11 @@
+{
+    "agent_name": "Agentic OS",
+    "version": "1.0.0",
+    "preferences": {
+        "tone": "friendly",
+        "language": "English",
+        "save_history": true
+    },
+    "memory_file": "data/memory.json",
+    "maximum_history_items": 50
+}
