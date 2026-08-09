@@ -1,1 +1,9 @@
-# This project currently uses only the Python standard library.
+# The command-line application (python main.py) uses only the Python
+# standard library and needs none of the packages below.
+#
+# The optional web interface (server/app.py) requires:
+fastapi>=0.141
+uvicorn[standard]>=0.52
+
+# Used only by the API test suite (tests/test_api.py):
+httpx>=0.28

@@ -1,94 +1,154 @@
 # Agentic OS
 
-## Project Purpose
-
-Agentic OS is an interactive Python application that behaves like a simple
-intelligent assistant. It runs in the terminal, receives user requests,
-remembers selected information between sessions, applies user preferences,
-and responds to a set of recognized commands.
+An interactive intelligent assistant with two front doors: a modern web
+workspace and the original command-line interface. The agent understands
+commands, applies your preferences, keeps conversation history, and
+remembers information between sessions.
 
 In this project, "operating system" means an intelligent assistant
 environment — not a replacement for Windows, macOS, or Linux.
 
+![Agentic OS — desktop, light theme](docs/screenshots/desktop-chat-light.png)
+
 ## Main Features
 
-- Command-line interaction through a simple `You:` / `Agent:` loop
-- A central `Agent` class that manages all behaviour
-- User preferences (tone, language, history saving) changeable at runtime
-- Conversation history with a configurable maximum size
-- Persistent memory stored in `data/memory.json` that survives restarts
-- Configuration through an external `config.json` file
-- Error handling for invalid input, unknown commands, and missing or
-  corrupt files
-- A unit-test suite built with Python's `unittest` framework
+- **Web workspace** — a responsive React application with a conversation
+  view, memory manager, preferences panel, live activity feed, command
+  palette (Ctrl/⌘+K), onboarding, and light/dark themes
+- **Command-line interface** — the original `python main.py` experience,
+  fully preserved and dependency-free
+- **One brain, two faces** — both interfaces drive the same tested Python
+  `Agent` class; no logic is duplicated in the frontend
+- **Persistent memory** in `data/memory.json` that survives restarts, with
+  add/delete/clear-all controls and confirmation before destructive actions
+- **Preferences** (tone, language, history recording) changeable at runtime
+  and applied to responses immediately
+- **Production-quality states** — loading, empty, success, error, offline,
+  and retry paths for every workflow
+- **Accessibility** — WCAG 2.2 AA verified by automated axe scans plus
+  keyboard review; full keyboard operation, focus-trapped dialogs,
+  reduced-motion support
+- **Measured performance** — Lighthouse (mobile emulation, production
+  build): Performance 97, Accessibility 100, Best Practices 100, SEO 100;
+  LCP 2.3 s, CLS 0, TBT 0 ms
+
+## Architecture
+
+```
+Browser (React + TypeScript + Vite SPA — frontend/)
+   │  JSON over HTTP (typed contracts, timeouts, central error handling)
+   ▼
+FastAPI adapter (server/app.py) — sessions, validation, safe errors,
+CORS, static hosting of the built frontend
+   │  direct in-process calls
+   ▼
+Agent class (agent.py) + utils.py + config.json + data/memory.json
+   ▲
+   └── Command-line interface (main.py) uses the same Agent directly
+```
+
+The adapter contains no business logic: every web operation maps onto the
+Agent's tested command surface (`/remember`, `/forget`, `/set`, `/clear`)
+and returns fresh state snapshots.
 
 ## Directory Structure
 
 ```text
-agentic-os/
-│
-├── main.py            # Entry point and interaction loop
-├── agent.py           # The Agent class (commands, memory, preferences)
-├── utils.py           # Configuration loading, JSON persistence, validation
-├── config.json        # User-editable settings
-├── README.md          # This file
-├── user_guide.md      # Detailed usage guide
-├── requirements.txt   # Dependencies (standard library only)
-├── .gitignore
-│
-├── data/
-│   └── memory.json    # Persistent memory (starts empty)
-│
-└── tests/
-    ├── __init__.py
-    ├── test_agent.py  # Tests for the Agent class
-    └── test_utils.py  # Tests for helpers and persistence
+├── main.py                # CLI entry point
+├── agent.py               # The Agent class (commands, memory, preferences)
+├── utils.py               # Config loading, JSON persistence, validation
+├── server/app.py          # FastAPI adapter + static hosting
+├── config.json            # User-editable settings
+├── data/memory.json       # Persistent memory (starts empty)
+├── tests/                 # Python unittest suite (agent, utils, API)
+├── frontend/
+│   ├── src/
+│   │   ├── app/           # Shell, store, theme
+│   │   ├── features/      # chat, commands, memory, preferences,
+│   │   │                  # activity, onboarding
+│   │   ├── shared/        # api client, types, components, styles (tokens)
+│   │   └── tests/         # Vitest unit tests
+│   └── e2e/               # Playwright end-to-end + accessibility tests
+├── docs/
+│   ├── UI_UX_AUDIT.md     # Audit, plan, and acceptance criteria
+│   └── screenshots/       # Final interface captures
+├── README.md · user_guide.md · requirements.txt · .env.example
 ```
 
 ## System Requirements
 
-- Python 3.8 or newer
-- No external packages — the project uses only the Python standard library,
-  so `requirements.txt` is intentionally empty apart from a comment.
+- Python 3.10+ (CLI alone needs only the standard library)
+- Node.js 20+ and npm (web interface only)
+- No API keys, no external services, no credentials
 
 ## Installation
 
 ```bash
 git clone <repository-url>
 cd 11
+
+# Web interface dependencies
+pip install -r requirements.txt
+cd frontend && npm install && npm run build && cd ..
 ```
 
-No further installation steps are needed.
+## Running the Application
 
-## Running the Program
+**Web interface (recommended):**
 
-Run from the project's root directory (the folder containing `config.json`):
+```bash
+python -m uvicorn server.app:app --port 8000
+```
+
+Then open <http://localhost:8000>. The server hosts both the API and the
+built frontend.
+
+**Development mode** (hot reload, two terminals):
+
+```bash
+python -m uvicorn server.app:app --reload --port 8000   # terminal 1
+cd frontend && npm run dev                              # terminal 2 → http://localhost:5173
+```
+
+**Command-line interface:**
 
 ```bash
 python main.py
 ```
 
-Enter `/exit` (or press Ctrl+C) to close the application.
-
-## Running the Tests
-
-From the project's root directory:
+## Testing
 
 ```bash
+# Python: agent, utils, and API tests (59 tests)
 python -m unittest discover tests
+
+# Frontend unit tests (18 tests)
+cd frontend && npm test
+
+# End-to-end + accessibility (15 checks across desktop and mobile;
+# requires the production build: npm run build)
+cd frontend && npx playwright test
+
+# Type checking
+cd frontend && npm run typecheck
 ```
 
-All tests pass on the submitted version:
+All 92 tests pass on the submitted version. In environments with a
+pre-installed browser, point Playwright at it:
+`PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium npx playwright test`.
 
-```text
-............................................
-----------------------------------------------------------------------
-Ran 44 tests
+## Basic Usage Example (web)
 
-OK
-```
+1. Open the app — a short onboarding explains the basics.
+2. Type `Hello there` and press Enter, or pick a suggested action.
+3. Press <kbd>Ctrl</kbd>+<kbd>K</kbd>, choose `/remember`, and save a fact.
+4. Open **Memory** to see, delete, or clear saved entries.
+5. Open **Preferences** and switch the tone to *Concise* — replies change
+   immediately.
+6. Use **Clear history** or **End session** in the sidebar; both ask for
+   confirmation where destructive.
 
-## Basic Usage Example
+The same commands work in the CLI:
 
 ```text
 Welcome to Agentic OS (version 1.0.0). Enter /help to view available commands.
@@ -96,37 +156,40 @@ You: /set tone concise
 Agent: Preference updated: tone = concise.
 You: /remember My preferred language is English.
 Agent: Information saved.
-You: /recall
-Agent: Saved information:
-       memory_1: My preferred language is English.
 You: /history
 Agent: /set tone concise
        /remember My preferred language is English.
-       /recall
-You: /exit
-Agent: Session closed. Goodbye.
 ```
 
-See `user_guide.md` for the full command reference and more examples.
+See `user_guide.md` for the full command reference.
+
+## Security and Privacy
+
+- Memory is stored as plain text in `data/memory.json` on your own
+  computer; nothing is sent to any external service. Remove entries from
+  the Memory panel, with `/forget`, or by deleting the file.
+- The repository contains no secrets; `.env.example` documents the few
+  optional environment variables (all with safe defaults).
+- The API validates input lengths and shapes, restricts CORS, hides stack
+  traces, and requires confirmation in the UI before destructive actions.
 
 ## Known Limitations
 
 - The agent recognizes commands and produces tone-styled acknowledgements
-  for free text; it does not use an AI language model and does not learn
-  autonomously.
-- Preference changes made with `/set` apply to the current session only.
-  Permanent defaults are set by editing `config.json`.
-- Conversation history is kept in memory for the session only; it is not
-  written to disk.
-- Memory persistence stores plain text in `data/memory.json` without
-  encryption, so avoid saving confidential information.
+  for free text; it does not use an AI language model.
+- Preference changes apply to the current session; permanent defaults are
+  edited in `config.json`.
+- Conversation history lives in server memory per session; restarting the
+  server starts fresh sessions (saved memory persists).
+- The server is designed for local, single-user use — there is no
+  authentication layer.
 
 ## Future Improvements
 
 - Persist preference changes back to `config.json` on request
-- Optional saving of conversation history between sessions
+- Streamed responses and a pluggable AI-model backend
+- Session restore across server restarts
 - Named memory keys (e.g. `/remember birthday = 1 May`)
-- Integration with an AI model for free-text conversation
 
 ## Author and Course Information
 

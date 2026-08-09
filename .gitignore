@@ -4,3 +4,8 @@ __pycache__/
 .env
 .vscode/
 .idea/
+node_modules/
+frontend/dist/
+frontend/e2e/.tmp/
+frontend/playwright-report/
+frontend/test-results/

@@ -1,0 +1,133 @@
+/* Agentic OS design tokens.
+   Light palette on :root; dark palette via [data-theme="dark"] or system
+   preference when no explicit choice is stored. */
+
+:root {
+  /* Neutrals */
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #eceef2;
+  --border: #e2e5ea;
+  --border-strong: #c9cedb;
+  --text: #171a21;
+  --text-muted: #555e6d;
+  --text-faint: #5f6978;
+
+  /* Accent */
+  --accent: #4f46e5;
+  --accent-strong: #4338ca;
+  --accent-soft: #eef0fe;
+  --on-accent: #ffffff;
+
+  /* Semantic */
+  --success: #157347;
+  --success-soft: #e6f4ec;
+  --warning: #a05a00;
+  --warning-soft: #fdf3e2;
+  --danger: #bb2030;
+  --danger-strong: #a01b29;
+  --danger-soft: #fdecee;
+  --on-danger: #ffffff;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgb(23 26 33 / 0.06);
+  --shadow-2: 0 2px 8px rgb(23 26 33 / 0.09);
+  --shadow-3: 0 12px 32px rgb(23 26 33 / 0.16);
+
+  /* Shape */
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+
+  /* Spacing (8-point system) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Typography */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas,
+    monospace;
+  --text-xs: 0.75rem;
+  --text-s: 0.8125rem;
+  --text-m: 0.9375rem;
+  --text-l: 1.0625rem;
+  --text-xl: 1.375rem;
+
+  /* Motion */
+  --motion-fast: 140ms ease;
+  --motion-medium: 220ms ease;
+
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #0e1116;
+  --surface: #151a22;
+  --surface-raised: #1b2130;
+  --surface-sunken: #0b0e13;
+  --border: #262e3d;
+  --border-strong: #38445a;
+  --text: #e9ebf1;
+  --text-muted: #a3adbf;
+  --text-faint: #8a94a6;
+
+  --accent: #8b93f8;
+  --accent-strong: #a5abfa;
+  --accent-soft: #232848;
+  --on-accent: #10122b;
+
+  --success: #57c98a;
+  --success-soft: #143327;
+  --warning: #e2a04a;
+  --warning-soft: #37270f;
+  --danger: #f27e8b;
+  --danger-strong: #f59aa4;
+  --danger-soft: #3b1a1f;
+  --on-danger: #2b0d12;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-2: 0 2px 8px rgb(0 0 0 / 0.4);
+  --shadow-3: 0 12px 32px rgb(0 0 0 / 0.55);
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) {
+    --bg: #0e1116;
+    --surface: #151a22;
+    --surface-raised: #1b2130;
+    --surface-sunken: #0b0e13;
+    --border: #262e3d;
+    --border-strong: #38445a;
+    --text: #e9ebf1;
+    --text-muted: #a3adbf;
+    --text-faint: #8a94a6;
+
+    --accent: #8b93f8;
+    --accent-strong: #a5abfa;
+    --accent-soft: #232848;
+    --on-accent: #10122b;
+
+    --success: #57c98a;
+    --success-soft: #143327;
+    --warning: #e2a04a;
+    --warning-soft: #37270f;
+    --danger: #f27e8b;
+    --danger-strong: #f59aa4;
+    --danger-soft: #3b1a1f;
+    --on-danger: #2b0d12;
+
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.35);
+    --shadow-2: 0 2px 8px rgb(0 0 0 / 0.4);
+    --shadow-3: 0 12px 32px rgb(0 0 0 / 0.55);
+
+    color-scheme: dark;
+  }
+}
