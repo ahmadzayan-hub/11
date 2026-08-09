@@ -14,9 +14,12 @@ workspace and the command line. For installation and testing, see
 python -m uvicorn server.app:app --port 8000
 ```
 
-Open <http://localhost:8000>. A session starts automatically. Stop the
-server with Ctrl+C; use **End session** in the sidebar to close a session
-gracefully first (the agent says goodbye and the composer locks).
+Open <http://localhost:8000>. A session starts automatically, and
+**refreshing the page reconnects to the same conversation** (a new session
+begins only when you ask for one, end the current one, or restart the
+server). Stop the server with Ctrl+C; use **End session** in the sidebar
+to close a session gracefully first (the agent says goodbye and the
+composer locks).
 
 On your first visit a short onboarding dialog explains the basics — it
 appears once and can be dismissed permanently.
@@ -26,9 +29,10 @@ appears once and can be dismissed permanently.
 - **Header** — product identity, a centered command search (opens the
   palette), live session status (Ready, Working, Offline, Error, or
   Session ended), theme toggle, and help.
-- **Sidebar** — switches between Workspace, Memory, Activity, and
-  Preferences, plus New session and End session. On phones and tablets it
-  opens as a drawer from the menu button.
+- **Sidebar** (desktop) — switches between Workspace, Memory, Activity,
+  and Preferences, plus New session and End session. On phones and
+  tablets the four views live in a **bottom tab bar**, and the session
+  actions open in a drawer from the menu button.
 - **Workspace** — a greeting hero with suggested actions when the
   conversation is empty, then your messages and the agent's replies with
   timestamps, a copy button on agent replies, and auto-scroll that pauses
@@ -54,9 +58,11 @@ retry option appears, and the status badge shows the connection state.
 
 ### Managing memory and your data
 
-Open **Memory** to see everything the agent has saved. You can search
-entries, add new ones, **edit any entry in place**, delete a single entry,
-or delete everything. The **Data controls** card provides:
+Open **Memory** to see everything the agent has saved. Each entry carries
+a **category** (General, Profile, Work, Projects, or Preferences) and a
+**last-updated date**. You can search entries, filter by category, add new
+ones, **edit any entry in place** (text and category), delete a single
+entry, or delete everything. The **Data controls** card provides:
 
 - **Export my data** — downloads memory, preferences, history, and the
   transcript as `agentic-os-export.json`.
@@ -80,10 +86,14 @@ switch.
 ### Activity
 
 Open **Activity** for a timestamped timeline of real events — session
-started, memory saved, preference changed, history cleared, requests
-completed or failed, and connection changes — alongside a **Session
+started or restored, memory saved, preference changed, history cleared,
+requests completed or failed, and connection changes — filterable by
+**System, Memory, Preferences, or Errors**, alongside a **Session
 health** card showing connection state, whether memory persistence is
 active, entry counts, and the time of the last successful response.
+
+Note: memory saved with the CLI's `/remember` command gets the *General*
+category; categories are chosen in the web interface.
 
 ### Themes and accessibility
 

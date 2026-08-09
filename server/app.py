@@ -81,6 +81,7 @@ class Session:
             "transcript": self.transcript,
             "preferences": dict(self.agent.preferences),
             "memory": dict(self.agent.memory),
+            "memory_entries": self.agent.memory_entries(),
             "history": list(self.agent.history),
             "memory_persisted": bool(self.agent.memory_file),
             "commands": COMMANDS,
@@ -93,6 +94,7 @@ class MessageIn(BaseModel):
 
 class MemoryIn(BaseModel):
     information: str = Field(min_length=1, max_length=MAX_TEXT_LENGTH)
+    category: str | None = Field(default=None, max_length=24)
 
 
 class PreferenceIn(BaseModel):
@@ -218,8 +220,11 @@ def create_app(config_path=None):
     def clear_history(session_id: str):
         with lock:
             session = get_session(session_id)
-            reply = session.agent.process_input("/clear")
-            return {"reply_text": reply, "state": session.snapshot()}
+            session.agent.history.clear()
+            return {
+                "reply_text": "Conversation history cleared.",
+                "state": session.snapshot(),
+            }
 
     # ------------------------------------------------------------------
     # Preferences
@@ -235,7 +240,7 @@ def create_app(config_path=None):
         value = clean_single_line(preference.value, "Preference value")
         with lock:
             session = get_session(session_id)
-            reply = session.agent.process_input(f"/set {key} {value}")
+            reply = session.agent.set_preference(key, value)
             return {"reply_text": reply, "state": session.snapshot()}
 
     # ------------------------------------------------------------------
@@ -246,7 +251,7 @@ def create_app(config_path=None):
         information = clean_single_line(memory.information, "Memory text")
         with lock:
             session = get_session(session_id)
-            reply = session.agent.process_input(f"/remember {information}")
+            reply = session.agent.add_memory(information, memory.category)
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.put("/api/sessions/{session_id}/memory/{key}")
@@ -256,7 +261,7 @@ def create_app(config_path=None):
             session = get_session(session_id)
             if key not in session.agent.memory:
                 raise HTTPException(status_code=404, detail=f"No memory named {key}.")
-            reply = session.agent.update_memory(key, information)
+            reply = session.agent.update_memory(key, information, memory.category)
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.get("/api/sessions/{session_id}/export")
@@ -269,6 +274,7 @@ def create_app(config_path=None):
                     "agent_name": session.agent.name,
                     "preferences": dict(session.agent.preferences),
                     "memory": dict(session.agent.memory),
+                    "memory_entries": session.agent.memory_entries(),
                     "history": list(session.agent.history),
                     "transcript": session.transcript,
                 },
@@ -283,14 +289,14 @@ def create_app(config_path=None):
             session = get_session(session_id)
             if key not in session.agent.memory:
                 raise HTTPException(status_code=404, detail=f"No memory named {key}.")
-            reply = session.agent.process_input(f"/forget {key}")
+            reply = session.agent.remove_memory(key)
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.delete("/api/sessions/{session_id}/memory")
     def clear_memory(session_id: str):
         with lock:
             session = get_session(session_id)
-            reply = session.agent.process_input("/forget all")
+            reply = session.agent.clear_all_memory()
             return {"reply_text": reply, "state": session.snapshot()}
 
     # ------------------------------------------------------------------

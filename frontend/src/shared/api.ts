@@ -86,15 +86,15 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ key, value }),
     }),
-  addMemory: (id: string, information: string) =>
+  addMemory: (id: string, information: string, category?: string) =>
     request<OperationResult>(`/api/sessions/${id}/memory`, {
       method: 'POST',
-      body: JSON.stringify({ information }),
+      body: JSON.stringify({ information, category: category ?? null }),
     }),
-  updateMemory: (id: string, key: string, information: string) =>
+  updateMemory: (id: string, key: string, information: string, category?: string) =>
     request<OperationResult>(`/api/sessions/${id}/memory/${encodeURIComponent(key)}`, {
       method: 'PUT',
-      body: JSON.stringify({ information }),
+      body: JSON.stringify({ information, category: category ?? null }),
     }),
   deleteMemory: (id: string, key: string) =>
     request<OperationResult>(`/api/sessions/${id}/memory/${encodeURIComponent(key)}`, {

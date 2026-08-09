@@ -22,8 +22,8 @@ interface Store {
   dismissFailed: () => void
   clearHistory: () => Promise<OperationOutcome>
   setPreference: (key: string, value: string) => Promise<OperationOutcome>
-  addMemory: (information: string) => Promise<OperationOutcome>
-  updateMemory: (key: string, information: string) => Promise<OperationOutcome>
+  addMemory: (information: string, category?: string) => Promise<OperationOutcome>
+  updateMemory: (key: string, information: string, category?: string) => Promise<OperationOutcome>
   deleteMemory: (key: string) => Promise<OperationOutcome>
   clearMemory: () => Promise<OperationOutcome>
   exportData: () => Promise<OperationOutcome>
@@ -31,6 +31,24 @@ interface Store {
 }
 
 const StoreContext = createContext<Store | null>(null)
+
+const SESSION_KEY = 'aos-session'
+
+function readStoredSessionId(): string | null {
+  try {
+    return localStorage.getItem(SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+function storeSessionId(id: string) {
+  try {
+    localStorage.setItem(SESSION_KEY, id)
+  } catch {
+    /* private mode — the session simply won't survive a refresh */
+  }
+}
 
 export function useStore(): Store {
   const store = useContext(StoreContext)
@@ -97,6 +115,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try {
       const state = await api.createSession()
       setSession(state)
+      storeSessionId(state.session_id)
       setFailedText(null)
       setLastError(false)
       setLastSyncedAt(new Date().toISOString())
@@ -110,14 +129,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [beginWork, endWork, pushEvent])
 
+  // On page load, restore the previous session when the server still has
+  // it and it hasn't ended; otherwise fall back to a fresh session.
+  const bootstrap = useCallback(async () => {
+    const storedId = readStoredSessionId()
+    if (storedId) {
+      beginWork()
+      try {
+        const state = await api.getSession(storedId)
+        if (!state.ended) {
+          setSession(state)
+          setLastSyncedAt(new Date().toISOString())
+          pushEvent('Session restored', 'success', `${state.transcript.length} messages`)
+          return
+        }
+      } catch (error) {
+        // Offline or server error: surface it instead of silently
+        // replacing the session. A 404 just means the session expired.
+        if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+          setBootError(error.message)
+          pushEvent('Session restore failed', 'error', error.message)
+          return
+        }
+      } finally {
+        endWork()
+      }
+    }
+    await start()
+  }, [beginWork, endWork, pushEvent, start])
+
   const startedOnce = useRef(false)
   useEffect(() => {
     // Guard against React StrictMode double-invoking the mount effect in
     // development, which would otherwise open two sessions.
     if (startedOnce.current) return
     startedOnce.current = true
-    void start()
-    // start() is stable; run once on mount.
+    void bootstrap()
+    // bootstrap() is stable; run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -194,12 +242,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [runOperation],
   )
   const addMemory = useCallback(
-    (information: string) => runOperation((id) => api.addMemory(id, information), 'Memory saved'),
+    (information: string, category?: string) =>
+      runOperation((id) => api.addMemory(id, information, category), 'Memory saved'),
     [runOperation],
   )
   const updateMemory = useCallback(
-    (key: string, information: string) =>
-      runOperation((id) => api.updateMemory(id, key, information), 'Memory updated'),
+    (key: string, information: string, category?: string) =>
+      runOperation((id) => api.updateMemory(id, key, information, category), 'Memory updated'),
     [runOperation],
   )
   const deleteMemory = useCallback(

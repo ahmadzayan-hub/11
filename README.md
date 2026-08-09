@@ -20,15 +20,24 @@ environment — not a replacement for Windows, macOS, or Linux.
   fully preserved and dependency-free
 - **One brain, two faces** — both interfaces drive the same tested Python
   `Agent` class; no logic is duplicated in the frontend
+- **Session restore** — refreshing the browser reconnects to the same
+  conversation (sessions expire when the server restarts; saved memory
+  does not)
 - **Persistent memory** in `data/memory.json` that survives restarts, with
-  search, add, **in-place edit**, delete, and delete-all controls —
-  destructive actions always require confirmation
+  **categories and timestamps**, search, category filters, add, **in-place
+  edit**, delete, and delete-all controls — destructive actions always
+  require confirmation (old plain-text memory files load transparently)
 - **Data controls** — export everything (memory, preferences, history,
   transcript) as JSON, clear history, or delete all memory from one place
 - **Preferences** (tone, your name, language, history recording) applied to
   responses immediately, plus interface settings (theme, reduced motion)
-- **Production-quality states** — loading, empty, success, error, offline,
-  and retry paths for every workflow
+- **Responsive by design** — sidebar navigation on desktop, a bottom tab
+  bar on phones and tablets, verified from 320 px up
+- **Production-quality states** — skeleton loading, empty, success, error,
+  offline, and retry paths for every workflow, plus a filterable activity
+  timeline (System / Memory / Preferences / Errors)
+- **Continuous integration** — a GitHub Actions workflow runs the entire
+  Python, unit, build, and end-to-end suite on every push
 - **Accessibility** — WCAG 2.2 AA verified by automated axe scans plus
   keyboard review; full keyboard operation, focus-trapped dialogs,
   reduced-motion support (system setting and in-app switch)
@@ -123,13 +132,13 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, and API tests (66 tests)
+# Python: agent, utils, and API tests (73 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (18 tests)
 cd frontend && npm test
 
-# End-to-end + accessibility (15 checks across desktop and mobile;
+# End-to-end + accessibility (17 checks across desktop and mobile;
 # requires the production build: npm run build)
 cd frontend && npx playwright test
 
@@ -137,7 +146,8 @@ cd frontend && npx playwright test
 cd frontend && npm run typecheck
 ```
 
-All 99 tests pass on the submitted version. In environments with a
+The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
+every push. All 108 tests pass on the submitted version. In environments with a
 pre-installed browser, point Playwright at it:
 `PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium npx playwright test`.
 
@@ -185,8 +195,8 @@ See `user_guide.md` for the full command reference.
   for free text; it does not use an AI language model.
 - Preference changes apply to the current session; permanent defaults are
   edited in `config.json`.
-- Conversation history lives in server memory per session; restarting the
-  server starts fresh sessions (saved memory persists).
+- Sessions survive a browser refresh but not a server restart; after a
+  restart the app starts a fresh session (saved memory persists).
 - The server is designed for local, single-user use — there is no
   authentication layer.
 

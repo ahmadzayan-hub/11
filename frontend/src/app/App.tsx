@@ -95,29 +95,28 @@ export function App() {
             <span className="brand__name">Agentic OS</span>
           </div>
         </header>
-        <div className="empty" style={{ margin: 'auto' }}>
-          {bootError ? (
-            <>
-              <div className="empty__icon">
-                <Icon name="alert" size={32} />
-              </div>
-              <p>{bootError}</p>
-              <p style={{ marginTop: 'var(--space-4)' }}>
-                <button type="button" className="btn btn--primary" onClick={() => void store.start()}>
-                  <Icon name="refresh" size={16} />
-                  Try again
-                </button>
-              </p>
-            </>
-          ) : (
-            <>
-              <span className="spinner" aria-hidden="true" style={{ width: 24, height: 24 }} />
-              <p role="status" style={{ marginTop: 'var(--space-3)' }}>
-                Starting your session…
-              </p>
-            </>
-          )}
-        </div>
+        {bootError ? (
+          <div className="empty" style={{ margin: 'auto' }}>
+            <div className="empty__icon">
+              <Icon name="alert" size={32} />
+            </div>
+            <p>{bootError}</p>
+            <p style={{ marginTop: 'var(--space-4)' }}>
+              <button type="button" className="btn btn--primary" onClick={() => void store.start()}>
+                <Icon name="refresh" size={16} />
+                Try again
+              </button>
+            </p>
+          </div>
+        ) : (
+          <div className="boot" role="status" aria-label="Starting your session">
+            <div className="skeleton skeleton--orb" />
+            <div className="skeleton skeleton--title" />
+            <div className="skeleton skeleton--line" />
+            <div className="skeleton skeleton--line skeleton--short" />
+            <p className="boot__text">Starting your session…</p>
+          </div>
+        )}
       </div>
     )
   }
@@ -273,7 +272,7 @@ export function App() {
           ) : null}
           {tab === 'memory' ? (
             <MemoryView
-              memory={session.memory}
+              entries={session.memory_entries}
               disabled={session.ended}
               onAdd={store.addMemory}
               onUpdate={store.updateMemory}
@@ -343,6 +342,21 @@ export function App() {
           </aside>
         ) : null}
       </div>
+
+      <nav className="tabbar" aria-label="Primary">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="tabbar__btn"
+            aria-current={tab === item.id ? 'page' : undefined}
+            onClick={() => setTab(item.id)}
+          >
+            <Icon name={item.icon} size={20} />
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
 
       {paletteOpen ? (
         <CommandPalette

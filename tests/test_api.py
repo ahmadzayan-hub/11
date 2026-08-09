@@ -102,14 +102,17 @@ class ApiTestCase(unittest.TestCase):
         sid = state["session_id"]
         added = self.client.post(
             f"/api/sessions/{sid}/memory",
-            json={"information": "The tram opens at 6am"},
+            json={"information": "The tram opens at 6am", "category": "work"},
         )
         self.assertEqual(added.status_code, 201)
         memory = added.json()["state"]["memory"]
         self.assertIn("The tram opens at 6am", memory.values())
-        self.assertEqual(
-            json.loads(self.memory_path.read_text(encoding="utf-8")), memory
-        )
+        entries = added.json()["state"]["memory_entries"]
+        self.assertEqual(entries[0]["category"], "work")
+        saved_file = json.loads(self.memory_path.read_text(encoding="utf-8"))
+        key = next(iter(memory))
+        self.assertEqual(saved_file[key]["text"], "The tram opens at 6am")
+        self.assertEqual(saved_file[key]["category"], "work")
 
         key = next(iter(memory))
         deleted = self.client.delete(f"/api/sessions/{sid}/memory/{key}")
@@ -124,12 +127,17 @@ class ApiTestCase(unittest.TestCase):
         )
         key = next(iter(added.json()["state"]["memory"]))
         updated = self.client.put(
-            f"/api/sessions/{sid}/memory/{key}", json={"information": "New text"}
+            f"/api/sessions/{sid}/memory/{key}",
+            json={"information": "New text", "category": "profile"},
         )
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.json()["state"]["memory"][key], "New text")
         self.assertEqual(
-            json.loads(self.memory_path.read_text(encoding="utf-8"))[key], "New text"
+            updated.json()["state"]["memory_entries"][0]["category"], "profile"
+        )
+        self.assertEqual(
+            json.loads(self.memory_path.read_text(encoding="utf-8"))[key]["text"],
+            "New text",
         )
 
     def test_update_unknown_memory_returns_404(self):
@@ -152,8 +160,11 @@ class ApiTestCase(unittest.TestCase):
         self.assertIn("attachment", response.headers["content-disposition"])
         body = response.json()
         self.assertIn("A fact", body["memory"].values())
-        self.assertEqual(body["history"], ["Hello", "/remember A fact"])
+        # Panel-driven memory operations are structured API calls, not
+        # conversation, so only the typed message appears in history.
+        self.assertEqual(body["history"], ["Hello"])
         self.assertEqual(len(body["transcript"]), 2)
+        self.assertEqual(body["memory_entries"][0]["text"], "A fact")
 
     def test_snapshot_reports_memory_persistence(self):
         state = self.open_session()

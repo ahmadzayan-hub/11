@@ -33,8 +33,16 @@ test.describe('main user journey', () => {
     await expect(page.getByText('My preferred language is English')).toBeVisible()
 
     await page.getByLabel('Information to remember').fill('Coffee at 8am')
+    await page.getByLabel('Category', { exact: true }).selectOption('work')
     await page.getByRole('button', { name: 'Add memory' }).click()
     await expect(page.getByText('Coffee at 8am')).toBeVisible()
+    await expect(page.locator('.memory__item')).toHaveCount(2)
+
+    // Category filters narrow the list; All restores it.
+    await page.getByRole('button', { name: 'Work', exact: true }).click()
+    await expect(page.locator('.memory__item')).toHaveCount(1)
+    await expect(page.getByText('Coffee at 8am')).toBeVisible()
+    await page.getByRole('button', { name: 'All', exact: true }).click()
     await expect(page.locator('.memory__item')).toHaveCount(2)
 
     await page.getByRole('button', { name: 'Edit memory_2' }).click()

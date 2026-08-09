@@ -83,6 +83,26 @@ class TestAgentPersistence(unittest.TestCase):
             "The metro opens at 5am", second_agent.memory.values()
         )
 
+    def test_categories_and_timestamps_survive_a_restart(self):
+        config = {"memory_file": self.memory_path}
+        first_agent = Agent(config)
+        first_agent.add_memory("Roadmap review on Monday", "work")
+
+        second_agent = Agent(config)
+        entry = second_agent.memory_entries()[0]
+        self.assertEqual(entry["category"], "work")
+        self.assertIsNotNone(entry["updated"])
+
+    def test_legacy_plain_string_memory_files_still_load(self):
+        Path(self.memory_path).write_text(
+            json.dumps({"memory_1": "An old-format fact"}), encoding="utf-8"
+        )
+        agent = Agent({"memory_file": self.memory_path})
+        self.assertEqual(agent.memory, {"memory_1": "An old-format fact"})
+        entry = agent.memory_entries()[0]
+        self.assertEqual(entry["category"], "general")
+        self.assertIsNone(entry["updated"])
+
     def test_forget_all_clears_the_saved_file(self):
         config = {"memory_file": self.memory_path}
         agent = Agent(config)

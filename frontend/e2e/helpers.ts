@@ -7,13 +7,15 @@ export async function skipOnboarding(page: Page) {
   })
 }
 
-/** Open a workspace tab, going through the drawer on mobile viewports. */
+/** Click a navigation control wherever it currently lives: the sidebar on
+ *  desktop, the bottom tab bar on mobile, or the drawer for actions that
+ *  only exist in the sidebar. */
 export async function openTab(page: Page, name: RegExp) {
-  const menu = page.getByRole('button', { name: 'Open navigation' })
-  if (await menu.isVisible()) {
-    await menu.click()
+  const target = page.getByRole('button', { name }).filter({ visible: true })
+  if ((await target.count()) === 0) {
+    await page.getByRole('button', { name: 'Open navigation' }).click()
   }
-  await page.getByRole('button', { name }).filter({ visible: true }).first().click()
+  await target.first().click()
 }
 
 /** Click a sidebar quick action (New session / Clear history / End session),

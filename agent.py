@@ -5,7 +5,13 @@ stores memory (optionally persisted to disk), applies user preferences,
 and produces a response for each recognized command.
 """
 
+import re
+from datetime import datetime, timezone
+
 from utils import load_memory, save_json, validate_input
+
+DEFAULT_MEMORY_CATEGORY = "general"
+CATEGORY_PATTERN = re.compile(r"^[a-z][a-z0-9 _-]{0,23}$")
 
 DEFAULT_PREFERENCES = {
     "tone": "friendly",
@@ -40,7 +46,29 @@ class Agent:
 
         self.history = []
         self.memory_file = config.get("memory_file")
-        self.memory = load_memory(self.memory_file) if self.memory_file else {}
+        # self.memory keeps the simple key -> text contract; categories and
+        # timestamps live in self.memory_meta. Both plain-string files (the
+        # original format) and rich entries load transparently.
+        self.memory = {}
+        self.memory_meta = {}
+        raw = load_memory(self.memory_file) if self.memory_file else {}
+        for key, value in raw.items():
+            if isinstance(value, dict):
+                text = str(value.get("text", "")).strip()
+                if not text:
+                    continue
+                self.memory[key] = text
+                updated = value.get("updated")
+                self.memory_meta[key] = {
+                    "category": self._clean_category(value.get("category")),
+                    "updated": updated if isinstance(updated, str) else None,
+                }
+            elif isinstance(value, str) and value.strip():
+                self.memory[key] = value
+                self.memory_meta[key] = {
+                    "category": DEFAULT_MEMORY_CATEGORY,
+                    "updated": None,
+                }
 
     @staticmethod
     def _read_positive_int(value, default):
@@ -50,6 +78,27 @@ class Agent:
         if isinstance(value, int) and value > 0:
             return value
         return default
+
+    @staticmethod
+    def _clean_category(value):
+        """Normalize a category label, falling back to the default."""
+        if isinstance(value, str):
+            value = value.strip().lower()
+            if CATEGORY_PATTERN.match(value):
+                return value
+        return DEFAULT_MEMORY_CATEGORY
+
+    @staticmethod
+    def _now_iso():
+        return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _key_order(key):
+        """Sort memory keys numerically (memory_2 before memory_10)."""
+        prefix, _, suffix = key.rpartition("_")
+        if prefix == "memory" and suffix.isdecimal():
+            return (0, int(suffix), key)
+        return (1, 0, key)
 
     # ------------------------------------------------------------------
     # Entry points
@@ -119,9 +168,19 @@ class Agent:
     # ------------------------------------------------------------------
     def remember(self, command):
         information = command[len("/remember"):].strip()
+        return self.add_memory(information)
+
+    def add_memory(self, information, category=None):
+        """Save a new memory entry with a category and timestamp."""
+        information = information.strip() if isinstance(information, str) else ""
         if not information:
             return "Please provide information to remember."
-        self.memory[self._next_memory_key()] = information
+        key = self._next_memory_key()
+        self.memory[key] = information
+        self.memory_meta[key] = {
+            "category": self._clean_category(category),
+            "updated": self._now_iso(),
+        }
         self._save_memory()
         return "Information saved."
 
@@ -129,7 +188,8 @@ class Agent:
         if not self.memory:
             return "No information has been saved yet."
         lines = [
-            f"{key}: {value}" for key, value in sorted(self.memory.items())
+            f"{key}: {self.memory[key]}"
+            for key in sorted(self.memory, key=self._key_order)
         ]
         return "Saved information:\n" + "\n".join(lines)
 
@@ -141,17 +201,44 @@ class Agent:
                 "/forget <key> or /forget all."
             )
         if target.lower() == "all":
-            self.memory.clear()
-            self._save_memory()
-            return "All saved information has been removed."
-        if target in self.memory:
-            del self.memory[target]
-            self._save_memory()
-            return f"Removed {target}."
-        return f"No saved information found for {target}. Enter /recall to list keys."
+            return self.clear_all_memory()
+        return self.remove_memory(target)
 
-    def update_memory(self, key, information):
-        """Replace the text stored under an existing memory key in place.
+    def remove_memory(self, key):
+        """Delete one memory entry by key."""
+        if key in self.memory:
+            del self.memory[key]
+            self.memory_meta.pop(key, None)
+            self._save_memory()
+            return f"Removed {key}."
+        return f"No saved information found for {key}. Enter /recall to list keys."
+
+    def clear_all_memory(self):
+        """Delete every memory entry."""
+        self.memory.clear()
+        self.memory_meta.clear()
+        self._save_memory()
+        return "All saved information has been removed."
+
+    def memory_entries(self):
+        """Memory as a list of rich entries in stable numeric key order."""
+        entries = []
+        for key in sorted(self.memory, key=self._key_order):
+            meta = self.memory_meta.get(
+                key, {"category": DEFAULT_MEMORY_CATEGORY, "updated": None}
+            )
+            entries.append(
+                {
+                    "key": key,
+                    "text": self.memory[key],
+                    "category": meta["category"],
+                    "updated": meta["updated"],
+                }
+            )
+        return entries
+
+    def update_memory(self, key, information, category=None):
+        """Replace the text (and optionally category) of an existing entry.
 
         Used by the web interface's edit control; returns a user-facing
         message either way so callers never need to raise.
@@ -162,6 +249,15 @@ class Agent:
         if key not in self.memory:
             return f"No saved information found for {key}. Enter /recall to list keys."
         self.memory[key] = information
+        previous = self.memory_meta.get(
+            key, {"category": DEFAULT_MEMORY_CATEGORY, "updated": None}
+        )
+        self.memory_meta[key] = {
+            "category": self._clean_category(category)
+            if category is not None
+            else previous["category"],
+            "updated": self._now_iso(),
+        }
         self._save_memory()
         return "Information updated."
 
@@ -177,8 +273,16 @@ class Agent:
     def _save_memory(self):
         if not self.memory_file:
             return
+        payload = {
+            entry["key"]: {
+                "text": entry["text"],
+                "category": entry["category"],
+                "updated": entry["updated"],
+            }
+            for entry in self.memory_entries()
+        }
         try:
-            save_json(self.memory_file, self.memory)
+            save_json(self.memory_file, payload)
         except OSError:
             # Memory stays available for this session even if the disk
             # write fails; persistence resumes on the next successful save.
@@ -192,8 +296,12 @@ class Agent:
         if len(parts) < 3:
             return "Usage: /set <setting> <value>. Example: /set tone concise"
         _, key, value = parts
-        key = key.lower()
-        if value.lower() in ("true", "false"):
+        return self.set_preference(key, value)
+
+    def set_preference(self, key, value):
+        """Store one preference, converting true/false strings to booleans."""
+        key = key.strip().lower()
+        if isinstance(value, str) and value.lower() in ("true", "false"):
             value = value.lower() == "true"
         self.preferences[key] = value
         shown = str(value).lower() if isinstance(value, bool) else value

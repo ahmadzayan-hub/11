@@ -1,6 +1,24 @@
+import { useState } from 'react'
 import { Icon } from '../../shared/components/Icon'
 import type { IconName } from '../../shared/components/Icon'
 import type { ActivityEvent, ConnectionStatus, SessionState } from '../../shared/types'
+
+type ActivityFilter = 'all' | 'system' | 'memory' | 'preferences' | 'errors'
+
+const FILTERS: Array<{ id: ActivityFilter; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'system', label: 'System' },
+  { id: 'memory', label: 'Memory' },
+  { id: 'preferences', label: 'Preferences' },
+  { id: 'errors', label: 'Errors' },
+]
+
+function filterOf(event: ActivityEvent): ActivityFilter {
+  if (event.kind === 'error') return 'errors'
+  if (/memory|data export/i.test(event.label)) return 'memory'
+  if (/preference/i.test(event.label)) return 'preferences'
+  return 'system'
+}
 
 function formatTime(iso: string): string {
   const date = new Date(iso)
@@ -30,8 +48,10 @@ interface ActivityViewProps {
 /** Operational transparency: real events and real health facts only —
  *  no fabricated telemetry, no hidden reasoning. */
 export function ActivityView({ events, session, status, lastSyncedAt }: ActivityViewProps) {
+  const [filter, setFilter] = useState<ActivityFilter>('all')
   const online = status !== 'offline'
   const healthy = online && status !== 'error'
+  const visible = filter === 'all' ? events : events.filter((event) => filterOf(event) === filter)
 
   return (
     <section className="panel" aria-label="Activity">
@@ -46,6 +66,22 @@ export function ActivityView({ events, session, status, lastSyncedAt }: Activity
             </div>
           </div>
 
+          {events.length > 0 ? (
+            <div className="chips" role="group" aria-label="Filter activity">
+              {FILTERS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className="chip"
+                  aria-pressed={filter === option.id}
+                  onClick={() => setFilter(option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           {events.length === 0 ? (
             <div className="card">
               <div className="empty">
@@ -55,10 +91,14 @@ export function ActivityView({ events, session, status, lastSyncedAt }: Activity
                 <p>No activity yet. Events appear here as you interact with the agent.</p>
               </div>
             </div>
+          ) : visible.length === 0 ? (
+            <div className="card">
+              <p className="empty">No {filter} events in this session yet.</p>
+            </div>
           ) : (
             <div className="card">
               <ol className="timeline">
-                {events.map((event) => (
+                {visible.map((event) => (
                   <li key={event.id} className="timeline__item">
                     <span className={`timeline__icon timeline__icon--${event.kind}`} aria-hidden="true">
                       <Icon name={iconFor(event.label)} size={16} />

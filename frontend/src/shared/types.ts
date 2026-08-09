@@ -23,9 +23,17 @@ export interface SessionState {
   transcript: TranscriptEntry[]
   preferences: Record<string, PreferenceValue>
   memory: Record<string, string>
+  memory_entries: MemoryEntry[]
   history: string[]
   memory_persisted: boolean
   commands: CommandInfo[]
+}
+
+export interface MemoryEntry {
+  key: string
+  text: string
+  category: string
+  updated: string | null
 }
 
 export interface ExportPayload {
@@ -33,6 +41,7 @@ export interface ExportPayload {
   agent_name: string
   preferences: Record<string, PreferenceValue>
   memory: Record<string, string>
+  memory_entries: MemoryEntry[]
   history: string[]
   transcript: TranscriptEntry[]
 }

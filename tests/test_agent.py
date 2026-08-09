@@ -114,6 +114,34 @@ class TestMemory(unittest.TestCase):
         self.assertEqual(response, "Information saved.")
         self.assertIn("memory_1", self.agent.memory)
 
+    def test_add_memory_records_category_and_timestamp(self):
+        self.agent.add_memory("Standup at 9am", "work")
+        entry = self.agent.memory_entries()[0]
+        self.assertEqual(entry["text"], "Standup at 9am")
+        self.assertEqual(entry["category"], "work")
+        self.assertIsNotNone(entry["updated"])
+
+    def test_invalid_category_falls_back_to_general(self):
+        self.agent.add_memory("A fact", "Not!Valid!!")
+        self.assertEqual(self.agent.memory_entries()[0]["category"], "general")
+
+    def test_memory_entries_sort_numerically(self):
+        for number in range(11):
+            self.agent.add_memory(f"Fact {number}")
+        keys = [entry["key"] for entry in self.agent.memory_entries()]
+        self.assertEqual(keys[:3], ["memory_1", "memory_2", "memory_3"])
+        self.assertEqual(keys[-1], "memory_11")
+
+    def test_update_memory_can_change_category(self):
+        self.agent.add_memory("A fact", "work")
+        self.agent.update_memory("memory_1", "A fact", "profile")
+        self.assertEqual(self.agent.memory_entries()[0]["category"], "profile")
+
+    def test_update_memory_keeps_category_when_not_given(self):
+        self.agent.add_memory("A fact", "work")
+        self.agent.update_memory("memory_1", "Another fact")
+        self.assertEqual(self.agent.memory_entries()[0]["category"], "work")
+
     def test_update_memory_replaces_text_in_place(self):
         self.agent.process_input("/remember Old fact")
         response = self.agent.update_memory("memory_1", "New fact")

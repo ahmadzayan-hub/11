@@ -125,10 +125,18 @@ in-place memory editing, JSON data export, a user-name greeting
 preference, a three-state theme (dark/light/system), a reduced-motion
 switch, and a session-health view.
 
-- Tests: Python 66/66 · frontend unit 18/18 · Playwright e2e 15/15
+A third pass closed the top architectural gaps: session restore on
+refresh (localStorage session id + the restore endpoint), a categorized
+and timestamped memory model (backward-compatible with plain-string
+memory files; panel operations now use structured Agent methods instead
+of command strings, so they no longer appear in conversation history),
+a mobile bottom tab bar, activity filters, skeleton boot loading, and a
+GitHub Actions CI workflow running the full suite on every push.
+
+- Tests: Python 73/73 · frontend unit 18/18 · Playwright e2e 17/17
   (1 desktop-only check skipped on the mobile project by design);
-  `tsc --noEmit` clean; production build clean (71.4 KB gzipped JS,
-  5.4 KB gzipped CSS, system fonts, no external requests).
+  `tsc --noEmit` clean; production build clean (72.3 KB gzipped JS,
+  5.7 KB gzipped CSS, system fonts, no external requests).
 - Lighthouse 13.x, mobile emulation, production server: **Performance 96 ·
   Accessibility 100 · Best Practices 100 · SEO 100**; LCP 2.3 s · CLS 0 ·
   TBT 0 ms. (The experimental "agentic-browsing" category scores 67 — it

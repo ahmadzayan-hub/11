@@ -1,13 +1,27 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { Icon } from '../../shared/components/Icon'
 import type { OperationOutcome } from '../../app/store'
+import type { MemoryEntry } from '../../shared/types'
+
+const CATEGORY_OPTIONS = ['general', 'profile', 'work', 'projects', 'preferences']
+
+function formatDate(iso: string | null): string {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function categoryLabel(category: string): string {
+  return category.charAt(0).toUpperCase() + category.slice(1)
+}
 
 interface MemoryViewProps {
-  memory: Record<string, string>
+  entries: MemoryEntry[]
   disabled: boolean
-  onAdd: (information: string) => Promise<OperationOutcome>
-  onUpdate: (key: string, information: string) => Promise<OperationOutcome>
+  onAdd: (information: string, category?: string) => Promise<OperationOutcome>
+  onUpdate: (key: string, information: string, category?: string) => Promise<OperationOutcome>
   onDelete: (key: string) => Promise<OperationOutcome>
   onClearAll: () => Promise<OperationOutcome>
   onExport: () => Promise<OperationOutcome>
@@ -15,7 +29,7 @@ interface MemoryViewProps {
 }
 
 export function MemoryView({
-  memory,
+  entries,
   disabled,
   onAdd,
   onUpdate,
@@ -25,21 +39,29 @@ export function MemoryView({
   onClearHistory,
 }: MemoryViewProps) {
   const [draft, setDraft] = useState('')
+  const [draftCategory, setDraftCategory] = useState('general')
   const [query, setQuery] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('all')
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
+  const [editCategory, setEditCategory] = useState('general')
   const [statusMessage, setStatusMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmingClear, setConfirmingClear] = useState(false)
 
-  const entries = Object.entries(memory)
+  const categories = useMemo(() => {
+    const present = new Set(entries.map((entry) => entry.category))
+    return ['all', ...Array.from(present).sort()]
+  }, [entries])
+
   const needle = query.trim().toLowerCase()
-  const visible = needle
-    ? entries.filter(
-        ([key, value]) =>
-          value.toLowerCase().includes(needle) || key.toLowerCase().includes(needle),
-      )
-    : entries
+  const visible = entries.filter(
+    (entry) =>
+      (categoryFilter === 'all' || entry.category === categoryFilter) &&
+      (!needle ||
+        entry.text.toLowerCase().includes(needle) ||
+        entry.key.toLowerCase().includes(needle)),
+  )
 
   async function run(action: () => Promise<OperationOutcome>) {
     setBusy(true)
@@ -56,13 +78,14 @@ export function MemoryView({
       setStatusMessage({ ok: false, text: 'Enter something to remember first.' })
       return
     }
-    const outcome = await run(() => onAdd(information))
+    const outcome = await run(() => onAdd(information, draftCategory))
     if (outcome.ok) setDraft('')
   }
 
-  function beginEdit(key: string, value: string) {
-    setEditingKey(key)
-    setEditDraft(value)
+  function beginEdit(entry: MemoryEntry) {
+    setEditingKey(entry.key)
+    setEditDraft(entry.text)
+    setEditCategory(entry.category)
   }
 
   async function submitEdit(event: React.FormEvent) {
@@ -73,9 +96,13 @@ export function MemoryView({
       setStatusMessage({ ok: false, text: 'Memory text cannot be empty.' })
       return
     }
-    const outcome = await run(() => onUpdate(editingKey, information))
+    const outcome = await run(() => onUpdate(editingKey, information, editCategory))
     if (outcome.ok) setEditingKey(null)
   }
+
+  const editCategoryOptions = CATEGORY_OPTIONS.includes(editCategory)
+    ? CATEGORY_OPTIONS
+    : [editCategory, ...CATEGORY_OPTIONS]
 
   return (
     <section className="panel" aria-label="Memory">
@@ -103,6 +130,22 @@ export function MemoryView({
                 onChange={(event) => setDraft(event.target.value)}
                 disabled={busy || disabled}
               />
+              <label className="visually-hidden" htmlFor="memory-category">
+                Category
+              </label>
+              <select
+                id="memory-category"
+                className="field__select memory__categoryselect"
+                value={draftCategory}
+                onChange={(event) => setDraftCategory(event.target.value)}
+                disabled={busy || disabled}
+              >
+                {CATEGORY_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {categoryLabel(option)}
+                  </option>
+                ))}
+              </select>
               <button type="submit" className="btn btn--primary" disabled={busy || disabled}>
                 {busy ? (
                   <span className="spinner" aria-hidden="true" />
@@ -114,19 +157,36 @@ export function MemoryView({
             </form>
 
             {entries.length > 0 ? (
-              <div className="memory__search">
-                <label className="visually-hidden" htmlFor="memory-search">
-                  Search memory
-                </label>
-                <input
-                  id="memory-search"
-                  className="field__input"
-                  type="search"
-                  placeholder="Search memory…"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-              </div>
+              <>
+                <div className="memory__search">
+                  <label className="visually-hidden" htmlFor="memory-search">
+                    Search memory
+                  </label>
+                  <input
+                    id="memory-search"
+                    className="field__input"
+                    type="search"
+                    placeholder="Search memory…"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                  />
+                </div>
+                {categories.length > 2 ? (
+                  <div className="chips" role="group" aria-label="Filter by category">
+                    {categories.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        className="chip"
+                        aria-pressed={categoryFilter === category}
+                        onClick={() => setCategoryFilter(category)}
+                      >
+                        {category === 'all' ? 'All' : categoryLabel(category)}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </>
             ) : null}
 
             <p
@@ -147,18 +207,18 @@ export function MemoryView({
                 <p>Nothing saved yet. Anything you remember here will be available next session.</p>
               </div>
             ) : visible.length === 0 ? (
-              <p className="empty">No memory matches “{query}”.</p>
+              <p className="empty">No memory matches the current search or filter.</p>
             ) : (
               <ul className="memory__list">
-                {visible.map(([key, value]) =>
-                  editingKey === key ? (
-                    <li key={key} className="memory__item memory__item--editing">
+                {visible.map((entry) =>
+                  editingKey === entry.key ? (
+                    <li key={entry.key} className="memory__item memory__item--editing">
                       <form className="memory__editform" onSubmit={submitEdit}>
-                        <label className="visually-hidden" htmlFor={`edit-${key}`}>
-                          Edit {key}
+                        <label className="visually-hidden" htmlFor={`edit-${entry.key}`}>
+                          Edit {entry.key}
                         </label>
                         <input
-                          id={`edit-${key}`}
+                          id={`edit-${entry.key}`}
                           className="field__input"
                           type="text"
                           value={editDraft}
@@ -167,6 +227,22 @@ export function MemoryView({
                           onChange={(event) => setEditDraft(event.target.value)}
                           disabled={busy}
                         />
+                        <label className="visually-hidden" htmlFor={`edit-category-${entry.key}`}>
+                          Category for {entry.key}
+                        </label>
+                        <select
+                          id={`edit-category-${entry.key}`}
+                          className="field__select memory__categoryselect"
+                          value={editCategory}
+                          onChange={(event) => setEditCategory(event.target.value)}
+                          disabled={busy}
+                        >
+                          {editCategoryOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {categoryLabel(option)}
+                            </option>
+                          ))}
+                        </select>
                         <button type="submit" className="btn btn--primary" disabled={busy}>
                           Save
                         </button>
@@ -181,14 +257,22 @@ export function MemoryView({
                       </form>
                     </li>
                   ) : (
-                    <li key={key} className="memory__item">
-                      <span className="memory__key">{key}</span>
-                      <span className="memory__text">{value}</span>
+                    <li key={entry.key} className="memory__item">
+                      <div className="memory__body">
+                        <p className="memory__text">{entry.text}</p>
+                        <p className="memory__meta">
+                          <span className={`memory__category memory__category--${entry.category}`}>
+                            {categoryLabel(entry.category)}
+                          </span>
+                          <span className="memory__key">{entry.key}</span>
+                          {entry.updated ? <span>Updated {formatDate(entry.updated)}</span> : null}
+                        </p>
+                      </div>
                       <button
                         type="button"
                         className="iconbtn"
-                        aria-label={`Edit ${key}`}
-                        onClick={() => beginEdit(key, value)}
+                        aria-label={`Edit ${entry.key}`}
+                        onClick={() => beginEdit(entry)}
                         disabled={busy || disabled}
                       >
                         <Icon name="edit" size={16} />
@@ -196,8 +280,8 @@ export function MemoryView({
                       <button
                         type="button"
                         className="iconbtn iconbtn--danger"
-                        aria-label={`Forget ${key}`}
-                        onClick={() => void run(() => onDelete(key))}
+                        aria-label={`Forget ${entry.key}`}
+                        onClick={() => void run(() => onDelete(entry.key))}
                         disabled={busy || disabled}
                       >
                         <Icon name="trash" size={16} />
