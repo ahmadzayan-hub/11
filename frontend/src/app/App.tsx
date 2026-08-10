@@ -7,6 +7,7 @@ import { HelpDialog } from '../features/commands/HelpDialog'
 import { MemoryView } from '../features/memory/MemoryView'
 import { Onboarding } from '../features/onboarding/Onboarding'
 import { PreferencesView } from '../features/preferences/PreferencesView'
+import { RunsView } from '../features/runs/RunsView'
 import { ConfirmDialog } from '../shared/components/ConfirmDialog'
 import { Icon } from '../shared/components/Icon'
 import type { IconName } from '../shared/components/Icon'
@@ -15,10 +16,11 @@ import type { CommandInfo } from '../shared/types'
 import { useStore } from './store'
 import { useTheme } from './useTheme'
 
-type Tab = 'chat' | 'memory' | 'preferences' | 'activity'
+type Tab = 'chat' | 'runs' | 'memory' | 'preferences' | 'activity'
 
 const TABS: Array<{ id: Tab; label: string; icon: IconName }> = [
   { id: 'chat', label: 'Workspace', icon: 'chat' },
+  { id: 'runs', label: 'Runs', icon: 'sparkle' },
   { id: 'memory', label: 'Memory', icon: 'memory' },
   { id: 'activity', label: 'Activity', icon: 'activity' },
   { id: 'preferences', label: 'Preferences', icon: 'settings' },
@@ -54,6 +56,24 @@ export function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  // Drawer modal semantics: Escape closes, focus moves in on open and
+  // returns to the menu button on close.
+  const drawerRef = useRef<HTMLDivElement | null>(null)
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (!drawerOpen) return
+    const first = drawerRef.current?.querySelector<HTMLElement>('button')
+    first?.focus()
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setDrawerOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      menuButtonRef.current?.focus()
+    }
+  }, [drawerOpen])
 
   const dismissOnboarding = useCallback(() => {
     setShowOnboarding(false)
@@ -194,6 +214,7 @@ export function App() {
       <header className="shell__header">
         <button
           type="button"
+          ref={menuButtonRef}
           className="iconbtn menubtn"
           aria-label="Open navigation"
           aria-expanded={drawerOpen}
@@ -252,7 +273,9 @@ export function App() {
               aria-label="Close navigation"
               onClick={() => setDrawerOpen(false)}
             />
-            <div className="drawer">{sidebar}</div>
+            <div className="drawer" role="dialog" aria-modal="true" aria-label="Navigation" ref={drawerRef}>
+              {sidebar}
+            </div>
           </>
         ) : null}
 
@@ -270,6 +293,7 @@ export function App() {
               composerRef={composerRef}
             />
           ) : null}
+          {tab === 'runs' ? <RunsView /> : null}
           {tab === 'memory' ? (
             <MemoryView
               entries={session.memory_entries}

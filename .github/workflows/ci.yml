@@ -19,8 +19,14 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Python tests (agent, utils, API)
+      - name: Python tests (agent, utils, API, runs)
         run: python -m unittest discover tests -v
+
+      - name: Python dependency audit (informational)
+        # Advisory only: a new transitive CVE should be visible without
+        # blocking unrelated changes; triage findings in the PR.
+        continue-on-error: true
+        run: pip install --quiet pip-audit && pip-audit
 
       - uses: actions/setup-node@v4
         with:
@@ -30,6 +36,10 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+        working-directory: frontend
+
+      - name: Frontend dependency audit
+        run: npm audit --audit-level=high
         working-directory: frontend
 
       - name: Frontend unit tests

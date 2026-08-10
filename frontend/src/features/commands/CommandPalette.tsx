@@ -26,7 +26,13 @@ export function CommandPalette({ commands, onPick, onClose }: CommandPaletteProp
   }, [commands, query])
 
   useEffect(() => {
+    // Full modal semantics: focus moves in on open and is restored to the
+    // opener on close; Tab is contained (the input is the only stop).
+    const previouslyFocused = document.activeElement as HTMLElement | null
     inputRef.current?.focus()
+    return () => {
+      previouslyFocused?.focus()
+    }
   }, [])
 
   useEffect(() => {
@@ -36,6 +42,8 @@ export function CommandPalette({ commands, onPick, onClose }: CommandPaletteProp
   function onKeyDown(event: React.KeyboardEvent) {
     if (event.key === 'Escape') {
       onClose()
+    } else if (event.key === 'Tab') {
+      event.preventDefault()
     } else if (event.key === 'ArrowDown') {
       event.preventDefault()
       setActiveIndex((index) => Math.min(index + 1, filtered.length - 1))

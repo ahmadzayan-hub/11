@@ -118,6 +118,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       storeSessionId(state.session_id)
       setFailedText(null)
       setLastError(false)
+      setOffline(false)
       setLastSyncedAt(new Date().toISOString())
       pushEvent('Session started', 'success', state.agent_name)
     } catch (error) {
@@ -139,6 +140,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const state = await api.getSession(storedId)
         if (!state.ended) {
           setSession(state)
+          setOffline(false)
           setLastSyncedAt(new Date().toISOString())
           pushEvent('Session restored', 'success', `${state.transcript.length} messages`)
           return
@@ -179,6 +181,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const result = await api.sendMessage(session.session_id, text)
         setSession(result.state)
         setLastError(false)
+        // Any confirmed server response proves connectivity — never stay
+        // stuck in offline mode after a successful request.
+        setOffline(false)
         setLastSyncedAt(new Date().toISOString())
         pushEvent('Request completed', 'info', text.length > 60 ? `${text.slice(0, 60)}…` : text)
         if (result.state.ended) pushEvent('Session ended', 'info')
@@ -216,6 +221,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const result = await operation(session.session_id)
         setSession(result.state)
         setLastError(false)
+        setOffline(false)
         setLastSyncedAt(new Date().toISOString())
         pushEvent(successLabel, 'success', result.reply_text)
         return { ok: true, message: result.reply_text }

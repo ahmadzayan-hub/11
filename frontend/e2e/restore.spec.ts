@@ -20,3 +20,21 @@ test('session survives a page refresh', async ({ page }) => {
   await expect(page.getByRole('status').filter({ hasText: 'Ready' })).toBeVisible()
   await expect(composerInput(page)).toBeEnabled()
 })
+
+test('offline mode clears after a confirmed successful request', async ({ page }) => {
+  await skipOnboarding(page)
+  await page.goto('/')
+  await expect(composerInput(page)).toBeVisible()
+
+  // Simulate a dead backend: the send fails and the app reports offline.
+  await page.route('**/api/**', (route) => route.abort())
+  await sendMessage(page, 'This one fails')
+  await expect(page.getByRole('status').filter({ hasText: 'Offline' })).toBeVisible()
+
+  // Backend recovers WITHOUT a browser online event. A successful retry
+  // must clear the offline badge (regression: it used to stay stuck).
+  await page.unroute('**/api/**')
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Ready' })).toBeVisible()
+  await expect(page.locator('.msg--agent .msg__bubble').last()).toContainText('This one fails')
+})

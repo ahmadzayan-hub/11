@@ -9,6 +9,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
+
 try:
     from fastapi.testclient import TestClient
     from server.app import create_app
@@ -227,10 +230,45 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(body["state"]["history"], [])
         self.assertIn("Keep me", body["state"]["memory"].values())
 
+    @unittest.skipUnless(
+        DIST_DIR.is_dir(), "frontend build not present (run npm run build)"
+    )
+    def test_static_files_cannot_escape_the_dist_directory(self):
+        # A traversal path must fall back to the SPA page, never serve
+        # files outside frontend/dist (config.json contains settings).
+        response = self.client.get("/../config.json")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("memory_file", response.text)
+        response = self.client.get("/..%2F..%2Fconfig.json")
+        self.assertNotIn("memory_file", response.text)
+
     def test_end_session_marks_session_ended(self):
         state = self.open_session()
         response = self.client.delete(f"/api/sessions/{state['session_id']}")
         self.assertTrue(response.json()["ended"])
+
+    def test_two_sessions_cannot_overwrite_each_others_memory(self):
+        first = self.open_session()
+        second = self.open_session()
+        self.client.post(
+            f"/api/sessions/{first['session_id']}/memory",
+            json={"information": "Fact from session one"},
+        )
+        response = self.client.post(
+            f"/api/sessions/{second['session_id']}/memory",
+            json={"information": "Fact from session two"},
+        )
+        saved = json.loads(self.memory_path.read_text(encoding="utf-8"))
+        texts = [entry["text"] for entry in saved.values()]
+        self.assertIn("Fact from session one", texts)
+        self.assertIn("Fact from session two", texts)
+        self.assertEqual(len(saved), 2)
+        self.assertEqual(len(response.json()["state"]["memory"]), 2)
+
+    def test_api_responses_are_not_cacheable_and_carry_security_headers(self):
+        response = self.client.get("/api/health")
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        self.assertEqual(response.headers.get("x-content-type-options"), "nosniff")
 
     def test_multiline_memory_is_rejected(self):
         state = self.open_session()

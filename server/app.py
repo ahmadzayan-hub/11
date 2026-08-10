@@ -23,6 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from agent import Agent
+from server.model_gateway import ModelGateway
+from server.runs import RunEngine
 from utils import load_config
 
 MAX_SESSIONS = 32
@@ -102,6 +104,16 @@ class PreferenceIn(BaseModel):
     value: str = Field(min_length=1, max_length=200)
 
 
+class RunIn(BaseModel):
+    goal: str = Field(min_length=3, max_length=500)
+    dataset_text: str | None = Field(default=None, max_length=300_000)
+    dataset_name: str | None = Field(default=None, max_length=100)
+
+
+class ApprovalIn(BaseModel):
+    decision: str = Field(pattern="^(approve|reject)$")
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -119,6 +131,14 @@ def create_app(config_path=None):
     lock = threading.Lock()
     app.state.sessions = sessions
 
+    gateway = ModelGateway()
+    engine = RunEngine(
+        config.get("database_file") or PROJECT_ROOT / "data" / "agentic.db",
+        config.get("vault_dir") or PROJECT_ROOT / "vault",
+        gateway,
+    )
+    app.state.engine = engine
+
     allowed_origins = [
         origin.strip()
         for origin in os.environ.get(
@@ -133,6 +153,20 @@ def create_app(config_path=None):
         allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Content-Type"],
     )
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+        )
+        if request.url.path.startswith("/api/"):
+            # Session, memory, and export payloads are private.
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception):
@@ -169,6 +203,7 @@ def create_app(config_path=None):
             "status": "ok",
             "agent_name": config.get("agent_name", "Agentic OS"),
             "version": str(config.get("version", "1.0.0")),
+            "model_provider": gateway.status(),
         }
 
     @app.post("/api/sessions", status_code=201)
@@ -251,6 +286,9 @@ def create_app(config_path=None):
         information = clean_single_line(memory.information, "Memory text")
         with lock:
             session = get_session(session_id)
+            # Reload the shared file first so a concurrent session's saves
+            # are never overwritten (lost-update prevention).
+            session.agent.reload_memory()
             reply = session.agent.add_memory(information, memory.category)
             return {"reply_text": reply, "state": session.snapshot()}
 
@@ -259,6 +297,7 @@ def create_app(config_path=None):
         information = clean_single_line(memory.information, "Memory text")
         with lock:
             session = get_session(session_id)
+            session.agent.reload_memory()
             if key not in session.agent.memory:
                 raise HTTPException(status_code=404, detail=f"No memory named {key}.")
             reply = session.agent.update_memory(key, information, memory.category)
@@ -287,6 +326,7 @@ def create_app(config_path=None):
     def delete_memory(session_id: str, key: str):
         with lock:
             session = get_session(session_id)
+            session.agent.reload_memory()
             if key not in session.agent.memory:
                 raise HTTPException(status_code=404, detail=f"No memory named {key}.")
             reply = session.agent.remove_memory(key)
@@ -296,8 +336,52 @@ def create_app(config_path=None):
     def clear_memory(session_id: str):
         with lock:
             session = get_session(session_id)
+            session.agent.reload_memory()
             reply = session.agent.clear_all_memory()
             return {"reply_text": reply, "state": session.snapshot()}
+
+    # ------------------------------------------------------------------
+    # Runs: goal -> plan -> tasks -> approval -> artifact
+    # ------------------------------------------------------------------
+    def _run_or_404(action):
+        try:
+            return action()
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error))
+
+    @app.post("/api/runs", status_code=201)
+    def create_run(run: RunIn):
+        with lock:
+            return engine.create_run(run.goal, run.dataset_text, run.dataset_name)
+
+    @app.get("/api/runs")
+    def list_runs():
+        with lock:
+            return {"runs": engine.list_runs()}
+
+    @app.get("/api/runs/{run_id}")
+    def get_run(run_id: str):
+        with lock:
+            return _run_or_404(lambda: engine.get_run(run_id))
+
+    @app.post("/api/runs/{run_id}/advance")
+    def advance_run(run_id: str):
+        with lock:
+            return _run_or_404(lambda: engine.advance(run_id))
+
+    @app.post("/api/runs/{run_id}/cancel")
+    def cancel_run(run_id: str):
+        with lock:
+            return _run_or_404(lambda: engine.cancel(run_id))
+
+    @app.post("/api/runs/{run_id}/approvals/{approval_id}")
+    def decide_approval(run_id: str, approval_id: str, decision: ApprovalIn):
+        with lock:
+            return _run_or_404(
+                lambda: engine.decide_approval(run_id, approval_id, decision.decision)
+            )
 
     # ------------------------------------------------------------------
     # Static frontend (production build), if present
@@ -310,10 +394,12 @@ def create_app(config_path=None):
         def spa(full_path: str):
             candidate = (dist / full_path).resolve()
             # Serve real files inside dist; anything else falls back to the
-            # SPA entry point. resolve() + prefix check blocks path traversal.
+            # SPA entry point. Path-aware containment (is_relative_to on the
+            # resolved path) blocks traversal — a string prefix check would
+            # not, e.g. a sibling directory named "dist-evil".
             if (
                 full_path
-                and str(candidate).startswith(str(dist))
+                and candidate.is_relative_to(dist.resolve())
                 and candidate.is_file()
             ):
                 return FileResponse(candidate)

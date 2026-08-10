@@ -20,6 +20,21 @@ environment — not a replacement for Windows, macOS, or Linux.
   fully preserved and dependency-free
 - **One brain, two faces** — both interfaces drive the same tested Python
   `Agent` class; no logic is duplicated in the frontend
+- **Analytics runs** — a goal becomes a governed pipeline of specialist
+  agents (planner, data collection, profiling, cleaning, preparation,
+  analysis, visualization, business analysis, independent validation,
+  reporting) executed as durable, bounded tasks in SQLite: pause, cancel,
+  restart recovery, truthful SVG charts, and a report where **every claim
+  links to a calculation**
+- **Approval-gated publishing** — reports publish into an
+  **Obsidian-compatible vault** (`vault/`) with provenance frontmatter and
+  run-log backlinks, only after explicit approval bound to the exact
+  artifact hash
+- **Provider-neutral model gateway** — deterministic by default (tests and
+  CI never need credentials); optional Groq narration via server-side env
+  vars, used only to phrase already-verified facts, never to calculate
+- **Installable PWA** — manifest, icons, and a service worker make the
+  mobile-first app installable on Android via "Add to Home screen"
 - **Session restore** — refreshing the browser reconnects to the same
   conversation (sessions expire when the server restarts; saved memory
   does not)
@@ -91,14 +106,17 @@ and returns fresh state snapshots.
 ## System Requirements
 
 - Python 3.10+ (CLI alone needs only the standard library)
-- Node.js 20+ and npm (web interface only)
-- No API keys, no external services, no credentials
+- Node.js 20.19+ or 22+ and npm (web interface only)
+- No API keys, no external services, no credentials required
+  (optional: `GROQ_API_KEY` on the server enables model-phrased report
+  narration — see `.env.example`)
 
 ## Installation
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/ahmadzayan-hub/11.git
 cd 11
+git checkout claude/agentic-os-final-project-53j6ql
 
 # Web interface dependencies
 pip install -r requirements.txt
@@ -132,13 +150,13 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, and API tests (73 tests)
+# Python: agent, utils, API, and run-engine tests (88 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (18 tests)
 cd frontend && npm test
 
-# End-to-end + accessibility (17 checks across desktop and mobile;
+# End-to-end + accessibility (23 checks across desktop and mobile;
 # requires the production build: npm run build)
 cd frontend && npx playwright test
 
@@ -147,7 +165,7 @@ cd frontend && npm run typecheck
 ```
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
-every push. All 108 tests pass on the submitted version. In environments with a
+every push. All 129 tests pass on the submitted version. In environments with a
 pre-installed browser, point Playwright at it:
 `PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium npx playwright test`.
 

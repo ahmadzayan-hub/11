@@ -111,6 +111,28 @@ class TestAgentPersistence(unittest.TestCase):
         self.assertEqual(load_memory(self.memory_path), {})
 
 
+class TestHonestPersistenceFailures(unittest.TestCase):
+    """A failed disk write must never be reported as a successful save."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+
+    def test_failed_write_is_reported_in_the_reply(self):
+        # Pointing the memory file at a directory makes every write fail.
+        agent = Agent({"memory_file": self.temp_dir.name})
+        response = agent.add_memory("A fact that cannot be saved")
+        self.assertIn("could not be written to disk", response)
+        self.assertNotEqual(response, "Information saved.")
+        # The entry still exists for this session.
+        self.assertIn("A fact that cannot be saved", agent.memory.values())
+
+    def test_successful_write_keeps_the_plain_message(self):
+        path = Path(self.temp_dir.name) / "memory.json"
+        agent = Agent({"memory_file": str(path)})
+        self.assertEqual(agent.add_memory("Saved fine"), "Information saved.")
+
+
 class TestValidateInput(unittest.TestCase):
     def test_accepts_normal_text(self):
         self.assertTrue(validate_input("hello"))

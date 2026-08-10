@@ -36,5 +36,12 @@ test('capture interface screenshots', async ({ page }, testInfo) => {
     await openTab(page, /^Activity/)
     await page.getByText('Session health').waitFor()
     await shot('activity-dark')
+
+    await openTab(page, /^Runs/)
+    await page.getByRole('button', { name: 'Start run' }).click()
+    await page
+      .getByRole('region', { name: 'Approval required' })
+      .waitFor({ timeout: 20_000 })
+    await shot('runs-dark')
   }
 })

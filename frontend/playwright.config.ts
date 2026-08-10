@@ -4,10 +4,14 @@ import { defineConfig } from '@playwright/test'
 // configuration in e2e/.tmp/, so end-to-end runs never touch the
 // repository's real data/memory.json.
 const PREPARE_CONFIG =
-  'python3 -c "import json,os; os.makedirs(\'frontend/e2e/.tmp\',exist_ok=True); ' +
+  'python3 -c "import json,os,shutil; os.makedirs(\'frontend/e2e/.tmp\',exist_ok=True); ' +
+  'shutil.rmtree(\'frontend/e2e/.tmp/vault\', ignore_errors=True); ' +
+  '[os.remove(p) for p in [\'frontend/e2e/.tmp/agentic.db\'] if os.path.exists(p)]; ' +
   'json.dump({\'agent_name\':\'Agentic OS\',\'version\':\'1.0.0\',' +
   '\'preferences\':{\'tone\':\'friendly\',\'language\':\'English\',\'save_history\':True},' +
-  '\'memory_file\':\'frontend/e2e/.tmp/memory.json\',\'maximum_history_items\':50},' +
+  '\'memory_file\':\'frontend/e2e/.tmp/memory.json\',' +
+  '\'database_file\':\'frontend/e2e/.tmp/agentic.db\',' +
+  '\'vault_dir\':\'frontend/e2e/.tmp/vault\',\'maximum_history_items\':50},' +
   'open(\'frontend/e2e/.tmp/config.json\',\'w\')); ' +
   'json.dump({},open(\'frontend/e2e/.tmp/memory.json\',\'w\'))"'
 
