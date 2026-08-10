@@ -57,3 +57,72 @@ export interface ActivityEvent {
 }
 
 export type ConnectionStatus = 'ready' | 'working' | 'offline' | 'error' | 'ended'
+
+export type RunState =
+  | 'queued'
+  | 'running'
+  | 'awaiting_approval'
+  | 'completed'
+  | 'partially_completed'
+  | 'failed'
+  | 'cancelled'
+
+export interface RunTask {
+  id: string
+  role: string
+  title: string
+  state: string
+  summary: string | null
+  quality_checks: Array<{ name: string; passed: boolean; detail: string }>
+  claims: Array<{ id: string; text: string; type: string; evidence: string[]; status: string }>
+}
+
+export interface RunApproval {
+  id: string
+  action: string
+  target: string
+  risk: string
+  impact: string
+  reversibility: string
+  state: string
+  created_at: string
+  decided_at: string | null
+}
+
+export interface ChartSpec {
+  id: string
+  type: 'bar' | 'line'
+  title: string
+  labels: string[]
+  values: number[]
+  alt: string
+}
+
+export interface RunDetail {
+  id: string
+  goal: string
+  dataset_name: string
+  state: RunState
+  error: string | null
+  created_at: string
+  updated_at: string
+  tasks: RunTask[]
+  approvals: RunApproval[]
+  charts: ChartSpec[]
+  report: {
+    id: string
+    name: string
+    version: number
+    content: string
+    published_path: string | null
+  } | null
+}
+
+export interface RunSummary {
+  id: string
+  goal: string
+  dataset_name: string
+  state: RunState
+  created_at: string
+  updated_at: string
+}

@@ -67,7 +67,9 @@ export function ChatView({
     setPinnedToBottom(distance < 48)
   }
 
-  const empty = transcriptLength === 0
+  // A failed or in-flight first message must render the stream (with its
+  // retry affordance), not the empty-state hero.
+  const empty = transcriptLength === 0 && !failedText && !sending
 
   return (
     <section className="chat" aria-label="Conversation">

@@ -46,9 +46,17 @@ class Agent:
 
         self.history = []
         self.memory_file = config.get("memory_file")
-        # self.memory keeps the simple key -> text contract; categories and
-        # timestamps live in self.memory_meta. Both plain-string files (the
-        # original format) and rich entries load transparently.
+        self.reload_memory()
+
+    def reload_memory(self):
+        """(Re)load memory from disk, replacing the in-memory copy.
+
+        Called at startup and again before shared-file mutations so that
+        two concurrent sessions cannot overwrite each other's saves.
+        self.memory keeps the simple key -> text contract; categories and
+        timestamps live in self.memory_meta. Both plain-string files (the
+        original format) and rich entries load transparently.
+        """
         self.memory = {}
         self.memory_meta = {}
         raw = load_memory(self.memory_file) if self.memory_file else {}
@@ -181,8 +189,7 @@ class Agent:
             "category": self._clean_category(category),
             "updated": self._now_iso(),
         }
-        self._save_memory()
-        return "Information saved."
+        return self._saved_message("Information saved.")
 
     def recall(self):
         if not self.memory:
@@ -209,16 +216,14 @@ class Agent:
         if key in self.memory:
             del self.memory[key]
             self.memory_meta.pop(key, None)
-            self._save_memory()
-            return f"Removed {key}."
+            return self._saved_message(f"Removed {key}.")
         return f"No saved information found for {key}. Enter /recall to list keys."
 
     def clear_all_memory(self):
         """Delete every memory entry."""
         self.memory.clear()
         self.memory_meta.clear()
-        self._save_memory()
-        return "All saved information has been removed."
+        return self._saved_message("All saved information has been removed.")
 
     def memory_entries(self):
         """Memory as a list of rich entries in stable numeric key order."""
@@ -258,8 +263,7 @@ class Agent:
             else previous["category"],
             "updated": self._now_iso(),
         }
-        self._save_memory()
-        return "Information updated."
+        return self._saved_message("Information updated.")
 
     def _next_memory_key(self):
         """Build a unique key even after entries have been deleted."""
@@ -271,8 +275,9 @@ class Agent:
         return f"memory_{highest + 1}"
 
     def _save_memory(self):
+        """Write memory to disk. Returns True on success, False on failure."""
         if not self.memory_file:
-            return
+            return True
         payload = {
             entry["key"]: {
                 "text": entry["text"],
@@ -283,10 +288,20 @@ class Agent:
         }
         try:
             save_json(self.memory_file, payload)
+            return True
         except OSError:
-            # Memory stays available for this session even if the disk
-            # write fails; persistence resumes on the next successful save.
-            pass
+            return False
+
+    def _saved_message(self, base):
+        """Report the outcome honestly: a failed disk write is never
+        presented as a successful save."""
+        if self._save_memory():
+            return base
+        return (
+            base.rstrip(".")
+            + ", but the change could not be written to disk and may not "
+            + "survive a restart. Check permissions for the memory file."
+        )
 
     # ------------------------------------------------------------------
     # Preferences

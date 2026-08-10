@@ -55,7 +55,11 @@ test.describe('main user journey', () => {
     const download = await downloadPromise
     expect(download.suggestedFilename()).toBe('agentic-os-export.json')
 
+    // Individual deletion is destructive and must be confirmed.
     await page.getByRole('button', { name: /Forget memory_2/ }).click()
+    const confirmForget = page.getByRole('dialog', { name: 'Forget memory_2?' })
+    await expect(confirmForget).toBeVisible()
+    await confirmForget.getByRole('button', { name: 'Forget it' }).click()
     await expect(page.locator('.memory__item')).toHaveCount(1)
 
     // 5. Change preferences and see them applied to replies.

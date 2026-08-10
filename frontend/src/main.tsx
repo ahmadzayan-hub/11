@@ -13,3 +13,13 @@ createRoot(document.getElementById('root')!).render(
     </StoreProvider>
   </StrictMode>,
 )
+
+// Installable PWA: register the service worker in production builds only,
+// so development and tests always see live code.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* offline caching is progressive enhancement — the app works without it */
+    })
+  })
+}

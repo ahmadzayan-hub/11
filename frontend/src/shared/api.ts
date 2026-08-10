@@ -1,4 +1,4 @@
-import type { ExportPayload, SessionState, TranscriptEntry } from './types'
+import type { ExportPayload, RunDetail, RunSummary, SessionState, TranscriptEntry } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 const REQUEST_TIMEOUT_MS = 10_000
@@ -103,4 +103,22 @@ export const api = {
   exportData: (id: string) => request<ExportPayload>(`/api/sessions/${id}/export`),
   clearMemory: (id: string) =>
     request<OperationResult>(`/api/sessions/${id}/memory`, { method: 'DELETE' }),
+  createRun: (goal: string, datasetText?: string, datasetName?: string) =>
+    request<RunDetail>('/api/runs', {
+      method: 'POST',
+      body: JSON.stringify({
+        goal,
+        dataset_text: datasetText ?? null,
+        dataset_name: datasetName ?? null,
+      }),
+    }),
+  listRuns: () => request<{ runs: RunSummary[] }>('/api/runs'),
+  getRun: (id: string) => request<RunDetail>(`/api/runs/${id}`),
+  advanceRun: (id: string) => request<RunDetail>(`/api/runs/${id}/advance`, { method: 'POST' }),
+  cancelRun: (id: string) => request<RunDetail>(`/api/runs/${id}/cancel`, { method: 'POST' }),
+  decideApproval: (id: string, approvalId: string, decision: 'approve' | 'reject') =>
+    request<RunDetail>(`/api/runs/${id}/approvals/${approvalId}`, {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    }),
 }

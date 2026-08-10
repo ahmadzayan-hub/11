@@ -83,6 +83,22 @@ defaults are edited in `config.json`. The **Interface** card holds
 browser-side settings: theme (Dark, Light, or System) and a reduced-motion
 switch.
 
+### Analytics runs
+
+Open **Runs** to turn a goal into a governed analytics pipeline. Choose
+the bundled sample sales dataset or paste your own CSV (header row first,
+up to 250 KB / 5000 rows), then start the run. Ten specialist agents
+execute in order — planning, ingestion, profiling, cleaning, preparation,
+analysis, visualization, business insights, independent validation, and
+reporting — and you can **Pause**, **Resume**, or **Cancel** at any time.
+A closed or crashed browser loses nothing: runs are stored durably and
+resume from where they stopped.
+
+The finished report shows charts, key metrics, and a findings table where
+every claim lists its evidence. Publishing the report into the local
+**Obsidian vault** (`vault/` — open it with Obsidian's "Open folder as
+vault") always requires your explicit approval; rejecting writes nothing.
+
 ### Activity
 
 Open **Activity** for a timestamped timeline of real events — session
@@ -192,11 +208,15 @@ always answers with an explanation of what to do instead.
 
 ## Privacy and Data Storage
 
-- Saved memory is **plain, unencrypted text** in `data/memory.json` on the
-  machine running Agentic OS. Nothing is sent over the internet.
+- Saved memory is **plain, unencrypted text** in `data/memory.json`;
+  analytics runs and reports are stored in `data/agentic.db`; approved
+  reports are written to `vault/`. Everything stays on the machine running
+  Agentic OS — nothing is sent over the internet unless you configure the
+  optional Groq narrator on the server.
 - Conversation history and activity exist in memory for the current
-  session only and disappear when the session or server closes.
-- The web app stores only two things in your browser: the theme choice and
-  whether onboarding was dismissed.
+  session only and disappear when the server restarts.
+- The web app stores three things in your browser: the theme choice, the
+  onboarding-dismissed flag, and the current session id (so a refresh can
+  reconnect). It stores no personal content.
 - Do not store passwords, API keys, or confidential personal information
   with `/remember`.

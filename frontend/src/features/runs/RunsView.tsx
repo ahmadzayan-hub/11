@@ -1,0 +1,426 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, ApiError } from '../../shared/api'
+import { Icon } from '../../shared/components/Icon'
+import type { ChartSpec, RunDetail, RunSummary } from '../../shared/types'
+
+const ACTIVE_STATES = ['queued', 'running']
+
+function BarChart({ chart }: { chart: ChartSpec }) {
+  const max = Math.max(...chart.values, 1)
+  const barWidth = 100 / chart.values.length
+  return (
+    <svg viewBox="0 0 100 58" role="img" aria-label={chart.alt} className="runchart__svg">
+      {chart.values.map((value, index) => (
+        <rect
+          key={chart.labels[index]}
+          x={index * barWidth + barWidth * 0.15}
+          y={50 - (value / max) * 46}
+          width={barWidth * 0.7}
+          height={(value / max) * 46}
+          rx="1"
+          fill="var(--accent-solid)"
+        />
+      ))}
+      <line x1="0" y1="50" x2="100" y2="50" stroke="var(--border-strong)" strokeWidth="0.5" />
+      {chart.labels.map((label, index) => (
+        <text
+          key={label}
+          x={index * barWidth + barWidth / 2}
+          y="56"
+          textAnchor="middle"
+          fontSize="3.4"
+          fill="var(--text-faint)"
+        >
+          {label.length > 9 ? `${label.slice(0, 8)}…` : label}
+        </text>
+      ))}
+    </svg>
+  )
+}
+
+function LineChart({ chart }: { chart: ChartSpec }) {
+  const max = Math.max(...chart.values, 1)
+  const min = Math.min(...chart.values, 0)
+  const span = max - min || 1
+  const points = chart.values
+    .map((value, index) => {
+      const x = (index / Math.max(chart.values.length - 1, 1)) * 96 + 2
+      const y = 48 - ((value - min) / span) * 42
+      return `${x},${y}`
+    })
+    .join(' ')
+  return (
+    <svg viewBox="0 0 100 58" role="img" aria-label={chart.alt} className="runchart__svg">
+      <polyline points={points} fill="none" stroke="var(--accent-solid)" strokeWidth="1.4" />
+      <line x1="0" y1="50" x2="100" y2="50" stroke="var(--border-strong)" strokeWidth="0.5" />
+      <text x="2" y="56" fontSize="3.4" fill="var(--text-faint)">
+        {chart.labels[0]}
+      </text>
+      <text x="98" y="56" fontSize="3.4" textAnchor="end" fill="var(--text-faint)">
+        {chart.labels[chart.labels.length - 1]}
+      </text>
+    </svg>
+  )
+}
+
+const TASK_ICON: Record<string, string> = {
+  succeeded: '✓',
+  failed: '✕',
+  skipped: '—',
+  cancelled: '—',
+  running: '…',
+  awaiting_approval: '!',
+  pending: '·',
+}
+
+export function RunsView() {
+  const [runs, setRuns] = useState<RunSummary[]>([])
+  const [run, setRun] = useState<RunDetail | null>(null)
+  const [goal, setGoal] = useState('Analyze the sample sales dataset and produce a business report')
+  const [useUpload, setUseUpload] = useState(false)
+  const [csvDraft, setCsvDraft] = useState('')
+  const [autoRun, setAutoRun] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const advancing = useRef(false)
+
+  const refreshList = useCallback(async () => {
+    try {
+      const result = await api.listRuns()
+      setRuns(result.runs)
+    } catch {
+      /* list refresh is best-effort; the create/open flows surface errors */
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshList()
+  }, [refreshList])
+
+  // Bounded client-driven stepping: one task per tick while the run is
+  // active and auto-run is on. Pausing simply stops advancing — the run
+  // state is durable on the server either way.
+  useEffect(() => {
+    if (!run || !autoRun || !ACTIVE_STATES.includes(run.state)) return
+    const timer = setTimeout(async () => {
+      if (advancing.current) return
+      advancing.current = true
+      try {
+        setRun(await api.advanceRun(run.id))
+      } catch (error) {
+        setErrorMessage(error instanceof ApiError ? error.message : 'Advance failed.')
+        setAutoRun(false)
+      } finally {
+        advancing.current = false
+      }
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [run, autoRun])
+
+  async function createRun(event: React.FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setErrorMessage(null)
+    try {
+      const detail = await api.createRun(
+        goal.trim(),
+        useUpload && csvDraft.trim() ? csvDraft : undefined,
+        useUpload && csvDraft.trim() ? 'uploaded CSV' : undefined,
+      )
+      setRun(detail)
+      setAutoRun(true)
+      void refreshList()
+    } catch (error) {
+      setErrorMessage(error instanceof ApiError ? error.message : 'Could not start the run.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function act(action: () => Promise<RunDetail>) {
+    setBusy(true)
+    setErrorMessage(null)
+    try {
+      setRun(await action())
+      void refreshList()
+    } catch (error) {
+      setErrorMessage(error instanceof ApiError ? error.message : 'The action failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const pendingApproval = run?.approvals.find((a) => a.state === 'pending')
+
+  if (!run) {
+    return (
+      <section className="panel" aria-label="Runs">
+        <div className="panel__inner">
+          <div className="panel__header">
+            <div>
+              <h2 className="panel__title">Analytics runs</h2>
+              <p className="panel__desc">
+                A goal becomes a governed pipeline of specialist agents — planning, data
+                profiling, cleaning, analysis, visualization, validation, and reporting —
+                with every claim traced to a calculation and publishing gated by your
+                approval.
+              </p>
+            </div>
+          </div>
+
+          <div className="card">
+            <form onSubmit={createRun}>
+              <div className="field">
+                <label className="field__label" htmlFor="run-goal">
+                  Goal
+                </label>
+                <input
+                  id="run-goal"
+                  className="field__input"
+                  value={goal}
+                  maxLength={500}
+                  onChange={(event) => setGoal(event.target.value)}
+                  disabled={busy}
+                />
+              </div>
+              <div className="field">
+                <span className="field__label" id="dataset-label">
+                  Dataset
+                </span>
+                <div className="segmented" role="group" aria-labelledby="dataset-label">
+                  <button
+                    type="button"
+                    className="segmented__option"
+                    aria-pressed={!useUpload}
+                    onClick={() => setUseUpload(false)}
+                  >
+                    Sample sales data
+                  </button>
+                  <button
+                    type="button"
+                    className="segmented__option"
+                    aria-pressed={useUpload}
+                    onClick={() => setUseUpload(true)}
+                  >
+                    Paste CSV
+                  </button>
+                </div>
+              </div>
+              {useUpload ? (
+                <div className="field">
+                  <label className="field__label" htmlFor="run-csv">
+                    CSV data (first row is the header)
+                  </label>
+                  <textarea
+                    id="run-csv"
+                    className="field__input runform__textarea"
+                    rows={6}
+                    value={csvDraft}
+                    onChange={(event) => setCsvDraft(event.target.value)}
+                    placeholder={'team,quarter,sales\nA,Q1,100\nB,Q1,90'}
+                    disabled={busy}
+                  />
+                </div>
+              ) : null}
+              <div className="field">
+                <button type="submit" className="btn btn--primary" disabled={busy || !goal.trim()}>
+                  {busy ? <span className="spinner" aria-hidden="true" /> : <Icon name="sparkle" size={16} />}
+                  Start run
+                </button>
+              </div>
+            </form>
+            <p
+              className={`statusline ${errorMessage ? 'statusline--error' : ''}`}
+              role="status"
+              aria-live="polite"
+            >
+              {errorMessage ?? ''}
+            </p>
+          </div>
+
+          {runs.length > 0 ? (
+            <div className="card">
+              <h3 className="card__title">Previous runs</h3>
+              <ul className="controls__list">
+                {runs.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className="controlrow"
+                      onClick={() => void act(() => api.getRun(item.id))}
+                    >
+                      <Icon name="clock" size={17} />
+                      <span>
+                        <span className="controlrow__label">{item.goal}</span>
+                        <span className="controlrow__help">
+                          {item.dataset_name} · {item.state.replace(/_/g, ' ')}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="panel" aria-label="Run detail">
+      <div className="panel__inner panel__inner--split">
+        <div className="panel__column">
+          <div className="panel__header">
+            <div>
+              <h2 className="panel__title">{run.goal}</h2>
+              <p className="panel__desc">
+                {run.dataset_name} · state:{' '}
+                <strong>{run.state.replace(/_/g, ' ')}</strong>
+                {run.error ? ` — ${run.error}` : ''}
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              {ACTIVE_STATES.includes(run.state) ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => setAutoRun((v) => !v)}
+                  >
+                    {autoRun ? 'Pause' : 'Resume'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--subtle"
+                    onClick={() => void act(() => api.cancelRun(run.id))}
+                    disabled={busy}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : null}
+              <button type="button" className="btn btn--ghost" onClick={() => setRun(null)}>
+                All runs
+              </button>
+            </div>
+          </div>
+
+          {pendingApproval ? (
+            <div className="card approvalcard" role="region" aria-label="Approval required">
+              <h3 className="card__title">
+                <Icon name="alert" size={16} /> Approval required
+              </h3>
+              <dl>
+                <div className="rail__row">
+                  <dt>Action</dt>
+                  <dd style={{ maxWidth: '70%', whiteSpace: 'normal', textAlign: 'right' }}>
+                    {pendingApproval.action}
+                  </dd>
+                </div>
+                <div className="rail__row">
+                  <dt>Target</dt>
+                  <dd style={{ maxWidth: '70%', whiteSpace: 'normal', textAlign: 'right' }}>
+                    {pendingApproval.target}
+                  </dd>
+                </div>
+                <div className="rail__row">
+                  <dt>Risk</dt>
+                  <dd>{pendingApproval.risk}</dd>
+                </div>
+                <div className="rail__row">
+                  <dt>Impact</dt>
+                  <dd style={{ maxWidth: '70%', whiteSpace: 'normal', textAlign: 'right' }}>
+                    {pendingApproval.impact}
+                  </dd>
+                </div>
+                <div className="rail__row">
+                  <dt>Reversibility</dt>
+                  <dd style={{ maxWidth: '70%', whiteSpace: 'normal', textAlign: 'right' }}>
+                    {pendingApproval.reversibility}
+                  </dd>
+                </div>
+              </dl>
+              <div className="dialog__actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={busy}
+                  onClick={() => void act(() => api.decideApproval(run.id, pendingApproval.id, 'reject'))}
+                >
+                  Reject
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  disabled={busy}
+                  onClick={() => void act(() => api.decideApproval(run.id, pendingApproval.id, 'approve'))}
+                >
+                  Approve and publish
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {run.charts.length > 0 ? (
+            <div className="card">
+              <h3 className="card__title">Charts</h3>
+              {run.charts.map((chart) => (
+                <figure key={chart.id} className="runchart">
+                  <figcaption className="field__label">{chart.title}</figcaption>
+                  {chart.type === 'bar' ? <BarChart chart={chart} /> : <LineChart chart={chart} />}
+                </figure>
+              ))}
+            </div>
+          ) : null}
+
+          {run.report ? (
+            <div className="card">
+              <h3 className="card__title">
+                Report (v{run.report.version})
+                {run.report.published_path ? ' — published to the vault' : ''}
+              </h3>
+              {run.report.published_path ? (
+                <p className="privacy-note">
+                  <Icon name="check" size={14} /> {run.report.published_path}
+                </p>
+              ) : null}
+              <pre className="runreport">{run.report.content}</pre>
+            </div>
+          ) : null}
+
+          <p
+            className={`statusline ${errorMessage ? 'statusline--error' : ''}`}
+            role="status"
+            aria-live="polite"
+          >
+            {errorMessage ?? ''}
+          </p>
+        </div>
+
+        <div className="panel__column panel__column--side">
+          <div className="card">
+            <h3 className="card__title">Specialist pipeline</h3>
+            <ul className="runtasks" aria-live="polite">
+              {run.tasks.map((task) => (
+                <li key={task.id} className={`runtask runtask--${task.state}`}>
+                  <span className="runtask__mark" aria-hidden="true">
+                    {TASK_ICON[task.state] ?? '·'}
+                  </span>
+                  <span>
+                    <span className="controlrow__label">{task.title}</span>
+                    {task.summary ? (
+                      <span className="controlrow__help">{task.summary}</span>
+                    ) : (
+                      <span className="controlrow__help">{task.state.replace(/_/g, ' ')}</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}

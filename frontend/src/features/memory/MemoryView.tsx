@@ -48,6 +48,7 @@ export function MemoryView({
   const [statusMessage, setStatusMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmingClear, setConfirmingClear] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState<MemoryEntry | null>(null)
 
   const categories = useMemo(() => {
     const present = new Set(entries.map((entry) => entry.category))
@@ -281,7 +282,7 @@ export function MemoryView({
                         type="button"
                         className="iconbtn iconbtn--danger"
                         aria-label={`Forget ${entry.key}`}
-                        onClick={() => void run(() => onDelete(entry.key))}
+                        onClick={() => setConfirmingDelete(entry)}
                         disabled={busy || disabled}
                       >
                         <Icon name="trash" size={16} />
@@ -351,6 +352,20 @@ export function MemoryView({
           </div>
         </div>
       </div>
+
+      {confirmingDelete ? (
+        <ConfirmDialog
+          title={`Forget ${confirmingDelete.key}?`}
+          message={`“${confirmingDelete.text}” will be permanently removed. This cannot be undone.`}
+          confirmLabel="Forget it"
+          busy={busy}
+          onCancel={() => setConfirmingDelete(null)}
+          onConfirm={() => {
+            const key = confirmingDelete.key
+            void run(() => onDelete(key)).then(() => setConfirmingDelete(null))
+          }}
+        />
+      ) : null}
 
       {confirmingClear ? (
         <ConfirmDialog

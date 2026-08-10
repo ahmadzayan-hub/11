@@ -1,0 +1,152 @@
+"""Tests for the durable run engine and analytics pipeline."""
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+try:
+    from fastapi.testclient import TestClient
+    from server.app import create_app
+    FASTAPI_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    FASTAPI_AVAILABLE = False
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed")
+class RunEngineTestCase(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.root = Path(self.temp_dir.name)
+        self.vault = self.root / "vault"
+        self.config_path = self.root / "config.json"
+        self.config_path.write_text(json.dumps({
+            "agent_name": "Runs Test Agent",
+            "memory_file": str(self.root / "memory.json"),
+            "database_file": str(self.root / "agentic.db"),
+            "vault_dir": str(self.vault),
+        }), encoding="utf-8")
+        self.client = TestClient(create_app(self.config_path),
+                                 raise_server_exceptions=False)
+
+    def create_run(self, goal="Analyze the sample sales dataset"):
+        response = self.client.post("/api/runs", json={"goal": goal})
+        self.assertEqual(response.status_code, 201)
+        return response.json()
+
+    def advance_until(self, run_id, stop_states, limit=20):
+        run = None
+        for _ in range(limit):
+            run = self.client.post(f"/api/runs/{run_id}/advance").json()
+            if run["state"] in stop_states:
+                return run
+        return run
+
+    def test_full_pipeline_reaches_approval_with_verified_claims(self):
+        run = self.create_run()
+        self.assertEqual(run["state"], "queued")
+        self.assertEqual(len(run["tasks"]), 11)
+        run = self.advance_until(run["id"], {"awaiting_approval"})
+        self.assertEqual(run["state"], "awaiting_approval")
+        states = {t["role"]: t["state"] for t in run["tasks"]}
+        for role in ("planner", "collector", "profiler", "cleaner", "preparer",
+                     "analyst", "visuals", "business", "validator", "reporter"):
+            self.assertEqual(states[role], "succeeded", role)
+        validator = next(t for t in run["tasks"] if t["role"] == "validator")
+        self.assertTrue(all(c["passed"] for c in validator["quality_checks"]))
+        self.assertIsNotNone(run["report"])
+        self.assertIn("## Findings and claims", run["report"]["content"])
+        self.assertIn("verified", run["report"]["content"])
+        self.assertTrue(run["charts"])
+        self.assertEqual(len(run["approvals"]), 1)
+        self.assertEqual(run["approvals"][0]["risk"], "high")
+
+    def test_reject_publishes_nothing(self):
+        run = self.advance_until(self.create_run()["id"], {"awaiting_approval"})
+        decided = self.client.post(
+            f"/api/runs/{run['id']}/approvals/{run['approvals'][0]['id']}",
+            json={"decision": "reject"}).json()
+        self.assertEqual(decided["state"], "completed")
+        publish = next(t for t in decided["tasks"] if t["role"] == "publish")
+        self.assertEqual(publish["state"], "skipped")
+        self.assertFalse((self.vault / "Reports").exists())
+
+    def test_approve_publishes_exactly_once_to_the_vault(self):
+        run = self.advance_until(self.create_run()["id"], {"awaiting_approval"})
+        approval_id = run["approvals"][0]["id"]
+        decided = self.client.post(
+            f"/api/runs/{run['id']}/approvals/{approval_id}",
+            json={"decision": "approve"}).json()
+        self.assertEqual(decided["state"], "completed")
+        reports = list((self.vault / "Reports").glob("*.md"))
+        logs = list((self.vault / "Runs").glob("*.md"))
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(len(logs), 1)
+        note = reports[0].read_text(encoding="utf-8")
+        self.assertIn("type: analytics-report", note)
+        self.assertIn("status: approved", note)
+        self.assertIn(f"[[{run['id']}]]", note)
+        # A second decision on the same approval must fail (idempotency).
+        again = self.client.post(
+            f"/api/runs/{run['id']}/approvals/{approval_id}",
+            json={"decision": "approve"})
+        self.assertEqual(again.status_code, 409)
+        self.assertEqual(len(list((self.vault / "Reports").glob("*.md"))), 1)
+
+    def test_run_survives_restart(self):
+        run = self.create_run()
+        for _ in range(4):
+            self.client.post(f"/api/runs/{run['id']}/advance")
+        # Simulate a full application restart with the same database.
+        fresh = TestClient(create_app(self.config_path),
+                           raise_server_exceptions=False)
+        recovered = fresh.get(f"/api/runs/{run['id']}").json()
+        self.assertEqual(recovered["id"], run["id"])
+        done = [t for t in recovered["tasks"] if t["state"] == "succeeded"]
+        self.assertEqual(len(done), 4)
+        resumed = fresh.post(f"/api/runs/{run['id']}/advance").json()
+        self.assertEqual(
+            len([t for t in resumed["tasks"] if t["state"] == "succeeded"]), 5)
+
+    def test_cancel_stops_the_run_and_blocks_further_transitions(self):
+        run = self.create_run()
+        self.client.post(f"/api/runs/{run['id']}/advance")
+        cancelled = self.client.post(f"/api/runs/{run['id']}/cancel").json()
+        self.assertEqual(cancelled["state"], "cancelled")
+        blocked = self.client.post(f"/api/runs/{run['id']}/advance")
+        self.assertEqual(blocked.status_code, 409)
+
+    def test_advance_while_awaiting_approval_is_rejected(self):
+        run = self.advance_until(self.create_run()["id"], {"awaiting_approval"})
+        blocked = self.client.post(f"/api/runs/{run['id']}/advance")
+        self.assertEqual(blocked.status_code, 409)
+        self.assertIn("approval", blocked.json()["detail"])
+
+    def test_bad_dataset_fails_honestly(self):
+        response = self.client.post("/api/runs", json={
+            "goal": "Analyze an empty dataset", "dataset_text": "just,a,header\n"})
+        run = self.advance_until(response.json()["id"], {"failed"})
+        self.assertEqual(run["state"], "failed")
+        self.assertIn("empty", run["error"])
+
+    def test_uploaded_dataset_is_analyzed(self):
+        csv_text = "team,quarter,sales\nA,Q1,100\nA,Q2,150\nB,Q1,90\nB,Q2,60\n"
+        response = self.client.post("/api/runs", json={
+            "goal": "Analyze team sales", "dataset_text": csv_text,
+            "dataset_name": "team sales"})
+        run = self.advance_until(response.json()["id"], {"awaiting_approval"})
+        self.assertEqual(run["state"], "awaiting_approval")
+        self.assertIn("total_sales | 400.0", run["report"]["content"])
+
+    def test_unknown_run_returns_404(self):
+        self.assertEqual(self.client.get("/api/runs/nope").status_code, 404)
+
+    def test_health_reports_deterministic_provider_without_credentials(self):
+        body = self.client.get("/api/health").json()
+        self.assertEqual(body["model_provider"]["provider"], "deterministic")
+        self.assertFalse(body["model_provider"]["configured"])
+
+
+if __name__ == "__main__":
+    unittest.main()
