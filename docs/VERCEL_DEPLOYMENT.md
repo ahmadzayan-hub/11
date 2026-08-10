@@ -24,12 +24,22 @@ is provided.
 
 ## Supported production path
 
-1. Host the backend on a server platform with a persistent disk (Fly.io,
-   Railway, Render, a VM): `uvicorn server.app:app --host 0.0.0.0`.
-2. Set the API origin at frontend build time: `VITE_API_BASE=https://api.example.com`.
-3. Add the Vercel domain to `AGENTIC_OS_ALLOWED_ORIGINS` on the backend.
-4. Keep `GROQ_API_KEY` on the backend host only.
-5. Deploy the frontend to Vercel with the config in this repo.
+1. Host the backend on a server platform (Fly.io, Railway, Render, a VM):
+   `uvicorn server.app:app --host 0.0.0.0`.
+2. Set `DATABASE_URL` to the provisioned Supabase PostgreSQL (project
+   `agentic-os`, session-pooler string from the dashboard — see
+   `.env.example` and `docs/adr/0001-database.md`). Runs, tasks,
+   approvals, and artifacts then persist in hosted Postgres, verified by
+   the CI Postgres suite.
+3. Set the API origin at frontend build time: `VITE_API_BASE=https://api.example.com`.
+4. Add the Vercel domain to `AGENTIC_OS_ALLOWED_ORIGINS` on the backend.
+5. Keep `GROQ_API_KEY` and `DATABASE_URL` on the backend host only.
+6. Deploy the frontend to Vercel with the config in this repo.
+
+Remaining host-local state (why a persistent disk is still recommended):
+sessions/transcripts (in-memory), `data/memory.json`, and vault files.
+Moving those to the hosted database is the next roadmap step before a
+fully stateless backend.
 
 Migrating persistence to PostgreSQL + object storage (per the V2 master
 prompt) is the prerequisite for an all-Vercel architecture; the

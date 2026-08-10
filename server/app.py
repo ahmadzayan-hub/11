@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from agent import Agent
 from server.model_gateway import ModelGateway
 from server.runs import RunEngine
+from server.storage import open_store
 from utils import load_config
 
 MAX_SESSIONS = 32
@@ -132,8 +133,14 @@ def create_app(config_path=None):
     app.state.sessions = sessions
 
     gateway = ModelGateway()
-    engine = RunEngine(
+    # Hosted PostgreSQL (DATABASE_URL / config "database_url") when
+    # configured; local SQLite otherwise. See docs/adr/0001-database.md.
+    store = open_store(
+        os.environ.get("DATABASE_URL") or config.get("database_url"),
         config.get("database_file") or PROJECT_ROOT / "data" / "agentic.db",
+    )
+    engine = RunEngine(
+        store,
         config.get("vault_dir") or PROJECT_ROOT / "vault",
         gateway,
     )

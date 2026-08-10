@@ -13,20 +13,48 @@ except ImportError:  # pragma: no cover
     FASTAPI_AVAILABLE = False
 
 
+import os
+
+PG_TEST_URL = os.environ.get(
+    "PG_TEST_URL", "postgresql://dev@127.0.0.1:54329/agentic_test"
+)
+
+
+def _postgres_available():
+    try:
+        import psycopg2
+
+        psycopg2.connect(PG_TEST_URL, connect_timeout=3).close()
+        return True
+    except Exception:
+        if os.environ.get("REQUIRE_PG"):
+            raise RuntimeError(
+                "REQUIRE_PG is set but the test PostgreSQL is unreachable: "
+                + PG_TEST_URL
+            )
+        return False
+
+
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed")
 class RunEngineTestCase(unittest.TestCase):
+    """Full engine suite against the SQLite store (the local default)."""
+
+    def database_config(self):
+        return {"database_file": str(self.root / "agentic.db")}
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.root = Path(self.temp_dir.name)
         self.vault = self.root / "vault"
         self.config_path = self.root / "config.json"
-        self.config_path.write_text(json.dumps({
+        config = {
             "agent_name": "Runs Test Agent",
             "memory_file": str(self.root / "memory.json"),
-            "database_file": str(self.root / "agentic.db"),
             "vault_dir": str(self.vault),
-        }), encoding="utf-8")
+        }
+        config.update(self.database_config())
+        self.config_path.write_text(json.dumps(config), encoding="utf-8")
         self.client = TestClient(create_app(self.config_path),
                                  raise_server_exceptions=False)
 
@@ -146,6 +174,32 @@ class RunEngineTestCase(unittest.TestCase):
         body = self.client.get("/api/health").json()
         self.assertEqual(body["model_provider"]["provider"], "deterministic")
         self.assertFalse(body["model_provider"]["configured"])
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed")
+@unittest.skipUnless(_postgres_available(), "test PostgreSQL is not reachable")
+class RunEnginePostgresTestCase(RunEngineTestCase):
+    """The identical engine suite against the hosted-mode PostgresStore.
+
+    Set PG_TEST_URL to point at a disposable database; set REQUIRE_PG=1
+    (as CI does) to turn an unreachable database into a hard failure
+    instead of a silent skip.
+    """
+
+    def database_config(self):
+        return {"database_url": PG_TEST_URL}
+
+    def setUp(self):
+        import psycopg2
+
+        # Fresh tables per test so runs from other tests never leak in.
+        conn = psycopg2.connect(PG_TEST_URL)
+        conn.autocommit = True
+        conn.cursor().execute(
+            "DROP TABLE IF EXISTS artifacts, approvals, tasks, runs CASCADE"
+        )
+        conn.close()
+        super().setUp()
 
 
 if __name__ == "__main__":

@@ -9,6 +9,25 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dev
+          POSTGRES_DB: agentic_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The run-engine suite runs against BOTH SQLite and PostgreSQL.
+      # REQUIRE_PG turns an unreachable database into a hard failure so
+      # the Postgres path can never be silently skipped in CI.
+      PG_TEST_URL: postgresql://dev@127.0.0.1:5432/agentic_test
+      REQUIRE_PG: '1'
     steps:
       - uses: actions/checkout@v4
 
