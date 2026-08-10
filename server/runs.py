@@ -70,7 +70,8 @@ class RunEngine:
         self.store.update("tasks", task_id, fields)
 
     # -- API --------------------------------------------------------------
-    def create_run(self, goal, dataset_text=None, dataset_name=None):
+    def create_run(self, goal, dataset_text=None, dataset_name=None,
+                   owner="local-owner"):
         run_id = uuid.uuid4().hex[:12]
         text = dataset_text or analytics.sample_dataset()
         name = dataset_name or ("uploaded dataset" if dataset_text else "sample sales dataset")
@@ -78,7 +79,8 @@ class RunEngine:
         self.store.insert("runs", {
             "id": run_id, "goal": goal.strip(), "dataset_name": name,
             "dataset_text": text, "state": "queued",
-            "created_at": now, "updated_at": now, "error": None})
+            "created_at": now, "updated_at": now, "error": None,
+            "owner": owner})
         roles = [role for role, _ in analytics.PIPELINE] + ["publish"]
         for idx, role in enumerate(roles):
             self.store.insert("tasks", {
@@ -252,8 +254,11 @@ class RunEngine:
             raise KeyError(run_id)
         return run
 
-    def list_runs(self):
-        return self.store.list_runs()
+    def list_runs(self, owner=None):
+        return self.store.list_runs(owner=owner)
+
+    def owner_of(self, run_id):
+        return self._row(run_id).get("owner") or "local-owner"
 
     def get_run(self, run_id):
         run = self._row(run_id)

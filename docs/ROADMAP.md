@@ -22,6 +22,11 @@ facts reach the narrator.
 
 1. Managed authentication (OIDC adapter) with Owner/Admin/Analyst/Viewer
    roles; fail-closed in production mode.
+   **Done:** identity adapter with local and JWT (shared-secret or JWKS)
+   providers, server-side role permissions on every endpoint, per-owner
+   isolation for sessions and runs, fail-closed production startup, and
+   an attack-focused test suite (ADR 0002). **Remaining:** a sign-in UI,
+   rate limiting, and an admin surface for granting roles.
 2. PostgreSQL adapter behind the existing `RunEngine`/memory interfaces,
    plus object storage for datasets and artifacts; migration tooling,
    backups, and restore drills (documented RPO/RTO).

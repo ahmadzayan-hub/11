@@ -67,6 +67,29 @@ class SqlStore:
     def _create_schema(self):
         for statement in SCHEMA_STATEMENTS:
             self._exec(statement)
+        self._migrate()
+
+    def _migrate(self):
+        """Additive migrations for databases created by earlier versions.
+
+        ADD COLUMN errors when the column already exists in both dialects,
+        which makes this safely repeatable on every startup."""
+        for table in ("runs", "sessions"):
+            try:
+                self._exec(f"ALTER TABLE {table} ADD COLUMN owner TEXT")
+            except Exception:
+                self._rollback()
+            else:
+                # Rows written before ownership existed belong to the
+                # local owner, matching pre-auth behavior.
+                self._exec(
+                    f"UPDATE {table} SET owner = 'local-owner' WHERE owner IS NULL")
+
+    def _rollback(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
 
     # -- generic helpers --------------------------------------------------
     def insert(self, table, row):
@@ -85,10 +108,15 @@ class SqlStore:
         rows = self._exec("SELECT * FROM runs WHERE id = ?", (run_id,))
         return rows[0] if rows else None
 
-    def list_runs(self, limit=50):
+    def list_runs(self, owner=None, limit=50):
+        if owner is None:
+            return self._exec(
+                "SELECT id, goal, dataset_name, state, created_at, updated_at "
+                "FROM runs ORDER BY created_at DESC LIMIT ?", (limit,))
         return self._exec(
             "SELECT id, goal, dataset_name, state, created_at, updated_at "
-            "FROM runs ORDER BY created_at DESC LIMIT ?", (limit,))
+            "FROM runs WHERE owner = ? ORDER BY created_at DESC LIMIT ?",
+            (owner, limit))
 
     def get_tasks(self, run_id):
         return self._exec(

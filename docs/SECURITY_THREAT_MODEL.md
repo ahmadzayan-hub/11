@@ -24,11 +24,22 @@ User memory (`data/memory.json`), run data and reports (`data/agentic.db`,
 | Stack-trace disclosure | Global exception handler returns a generic message | `server/app.py` |
 | Privacy in git history | Runtime data (`memory.json`, `agentic.db`, `vault/`) untracked and ignored; note: `data/memory.json` existed in history as `{}` only — no personal data was ever committed | git log |
 
+## Identity and access control (ADR 0002)
+
+| Threat | Control | Verified by |
+| --- | --- | --- |
+| Unauthenticated access in a hosted deployment | Production declares auth or startup fails closed; every endpoint except `/api/health` requires a principal | `tests/test_auth.py` |
+| Forged / replayed / downgraded tokens | Managed-provider JWT verification with pinned algorithms — HS256 for shared secrets, RS256/ES256 for JWKS — rejecting `alg: none`, bad signatures, expiry, and audience mismatch | 8 attack tests |
+| Privilege escalation via token claims | Roles come from a server-side permission table; unknown role claims fall back to least privilege (`viewer`) | role-forgery test |
+| Cross-tenant access | `owner` on sessions and runs; reads filtered, writes ownership-checked before any state change; other owners' resources answer 404 (no existence oracle) | isolation tests |
+| Credential leakage in errors | Auth failures return fixed messages; token content never echoed | leak test |
+
 ## Known gaps (explicit)
 
-1. No authentication/authorization — do not expose the server beyond
-   localhost as-is.
-2. No rate limiting (single-user assumption).
-3. No CSRF tokens (no cookie-authenticated state; CORS is restricted).
+1. No sign-in UI yet — hosted deployments issue tokens through their own
+   provider front door (see ADR 0002).
+2. No rate limiting.
+3. No CSRF tokens (tokens travel in the Authorization header, not
+   cookies; CORS is restricted).
 4. Groq path could not be live-tested here (no key); its failure handling
    is defensive-by-construction and falls back deterministically.

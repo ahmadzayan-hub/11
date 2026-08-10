@@ -28,10 +28,12 @@ required local files. Both behaviors are covered by tests
 
 ## Platform
 
-5. Single-user, local-first: no authentication, authorization, tenancy,
-   or rate limiting. Do not expose beyond localhost as-is. **This is now
-   the last blocker for hosted multi-user operation** — persistence is
-   no longer the constraint.
+5. Authentication ships as an adapter (ADR 0002): local mode is
+   single-owner with no login; hosted mode verifies managed-provider
+   JWTs with server-side roles and per-owner isolation. **No sign-in UI
+   exists yet** — a hosted deployment must obtain tokens through its own
+   provider front door. Rate limiting is still absent. Treat a hosted
+   deployment as pre-production until the sign-in flow lands.
 6. Runs advance while the Runs view is open (client-stepped execution);
    there is no background worker. A paused/interrupted run resumes from
    its durable state at any time.

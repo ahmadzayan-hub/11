@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from agent import Agent
 from server.model_gateway import ModelGateway
 from server.runs import RunEngine
+from server.auth import AuthError, build_identity
 from server.storage import DbMemoryBackend, PostgresStore, open_store
 from utils import load_config
 
@@ -58,8 +59,9 @@ class Session:
     conversations survive an application restart in both SQLite and
     hosted-PostgreSQL modes."""
 
-    def __init__(self, config, memory_backend=None, row=None):
+    def __init__(self, config, memory_backend=None, row=None, owner="local-owner"):
         self.agent = Agent(config, memory_backend=memory_backend)
+        self.owner = (row or {}).get("owner") or owner
         if row is None:
             self.id = uuid.uuid4().hex
             self.transcript = []
@@ -78,6 +80,7 @@ class Session:
     def to_row(self):
         return {
             "id": self.id,
+            "owner": self.owner,
             "created_at": self.created_at,
             "updated_at": now_iso(),
             "ended": 1 if self.ended else 0,
@@ -143,8 +146,11 @@ class ApprovalIn(BaseModel):
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-def create_app(config_path=None):
+def create_app(config_path=None, env=None):
     config = load_config(config_path or PROJECT_ROOT / "config.json")
+    # Fails closed: declaring production without a managed identity
+    # provider raises here rather than serving data unauthenticated.
+    identity = build_identity(env)
     app = FastAPI(
         title=config.get("agent_name", "Agentic OS"),
         version=str(config.get("version", "1.0.0")),
@@ -212,9 +218,38 @@ def create_app(config_path=None):
             content={"detail": "Something went wrong on the server. Please try again."},
         )
 
-    def get_session(session_id):
+    # ------------------------------------------------------------------
+    # Identity and authorization
+    # ------------------------------------------------------------------
+    def current_principal(authorization: str = Header(default=None)):
+        try:
+            return identity.authenticate(authorization)
+        except AuthError as error:
+            raise HTTPException(status_code=401, detail=str(error))
+
+    def requires(permission):
+        def dependency(principal=Depends(current_principal)):
+            if not principal.can(permission):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Your role ({principal.role}) cannot {permission} here.",
+                )
+            return principal
+        return dependency
+
+    def owns(principal, owner):
+        """Objects belong to their creator; admins may act across owners."""
+        return owner == principal.subject or principal.can("admin")
+
+    @app.get("/api/identity")
+    def whoami(principal=Depends(current_principal)):
+        return {"mode": identity.mode, "principal": principal.as_dict()}
+
+    def get_session(session_id, principal=None):
         row = store.get_session(session_id)
-        if row is None:
+        if row is None or (principal is not None
+                           and not owns(principal, row.get("owner") or "local-owner")):
+            # Same response for missing and forbidden: no existence oracle.
             raise HTTPException(
                 status_code=404,
                 detail="Session not found. It may have expired — start a new session.",
@@ -246,22 +281,22 @@ def create_app(config_path=None):
         }
 
     @app.post("/api/sessions", status_code=201)
-    def create_session():
+    def create_session(principal=Depends(requires("write"))):
         with lock:
-            session = Session(config, memory_backend)
+            session = Session(config, memory_backend, owner=principal.subject)
             save_session(session)
             store.trim_sessions(MAX_SESSIONS)
             return session.snapshot()
 
     @app.get("/api/sessions/{session_id}")
-    def read_session(session_id: str):
+    def read_session(session_id: str, principal=Depends(requires("read"))):
         with lock:
-            return get_session(session_id).snapshot()
+            return get_session(session_id, principal).snapshot()
 
     @app.delete("/api/sessions/{session_id}")
-    def end_session(session_id: str):
+    def end_session(session_id: str, principal=Depends(requires("write"))):
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             session.ended = True
             reply = session.agent.process_input("/exit")
             session.add_entry("agent", reply)
@@ -272,12 +307,12 @@ def create_app(config_path=None):
     # Conversation
     # ------------------------------------------------------------------
     @app.post("/api/sessions/{session_id}/messages")
-    def send_message(session_id: str, message: MessageIn):
+    def send_message(session_id: str, message: MessageIn, principal=Depends(requires("write"))):
         text = message.text.strip()
         if not text:
             raise HTTPException(status_code=422, detail="Message text is empty.")
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             if session.ended:
                 raise HTTPException(
                     status_code=409,
@@ -292,9 +327,9 @@ def create_app(config_path=None):
             return {"reply": entry, "state": session.snapshot()}
 
     @app.delete("/api/sessions/{session_id}/history")
-    def clear_history(session_id: str):
+    def clear_history(session_id: str, principal=Depends(requires("write"))):
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             session.agent.history.clear()
             save_session(session)
             return {
@@ -306,7 +341,7 @@ def create_app(config_path=None):
     # Preferences
     # ------------------------------------------------------------------
     @app.put("/api/sessions/{session_id}/preferences")
-    def update_preference(session_id: str, preference: PreferenceIn):
+    def update_preference(session_id: str, preference: PreferenceIn, principal=Depends(requires("write"))):
         key = preference.key.strip().lower()
         if not PREFERENCE_KEY_PATTERN.match(key):
             raise HTTPException(
@@ -315,7 +350,7 @@ def create_app(config_path=None):
             )
         value = clean_single_line(preference.value, "Preference value")
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             reply = session.agent.set_preference(key, value)
             save_session(session)
             return {"reply_text": reply, "state": session.snapshot()}
@@ -324,10 +359,10 @@ def create_app(config_path=None):
     # Memory
     # ------------------------------------------------------------------
     @app.post("/api/sessions/{session_id}/memory", status_code=201)
-    def add_memory(session_id: str, memory: MemoryIn):
+    def add_memory(session_id: str, memory: MemoryIn, principal=Depends(requires("write"))):
         information = clean_single_line(memory.information, "Memory text")
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             # Reload the shared file first so a concurrent session's saves
             # are never overwritten (lost-update prevention).
             session.agent.reload_memory()
@@ -336,10 +371,10 @@ def create_app(config_path=None):
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.put("/api/sessions/{session_id}/memory/{key}")
-    def update_memory(session_id: str, key: str, memory: MemoryIn):
+    def update_memory(session_id: str, key: str, memory: MemoryIn, principal=Depends(requires("write"))):
         information = clean_single_line(memory.information, "Memory text")
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             session.agent.reload_memory()
             if key not in session.agent.memory:
                 raise HTTPException(status_code=404, detail=f"No memory named {key}.")
@@ -348,9 +383,9 @@ def create_app(config_path=None):
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.get("/api/sessions/{session_id}/export")
-    def export_data(session_id: str):
+    def export_data(session_id: str, principal=Depends(requires("read"))):
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             return JSONResponse(
                 content={
                     "exported_at": now_iso(),
@@ -367,9 +402,9 @@ def create_app(config_path=None):
             )
 
     @app.delete("/api/sessions/{session_id}/memory/{key}")
-    def delete_memory(session_id: str, key: str):
+    def delete_memory(session_id: str, key: str, principal=Depends(requires("write"))):
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             session.agent.reload_memory()
             if key not in session.agent.memory:
                 raise HTTPException(status_code=404, detail=f"No memory named {key}.")
@@ -378,9 +413,9 @@ def create_app(config_path=None):
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.delete("/api/sessions/{session_id}/memory")
-    def clear_memory(session_id: str):
+    def clear_memory(session_id: str, principal=Depends(requires("write"))):
         with lock:
-            session = get_session(session_id)
+            session = get_session(session_id, principal)
             session.agent.reload_memory()
             reply = session.agent.clear_all_memory()
             save_session(session)
@@ -390,12 +425,12 @@ def create_app(config_path=None):
     # Vault: durable record of approved, published knowledge
     # ------------------------------------------------------------------
     @app.get("/api/vault")
-    def list_vault_notes():
+    def list_vault_notes(principal=Depends(requires("read"))):
         with lock:
             return {"notes": store.list_notes()}
 
     @app.get("/api/vault/note")
-    def get_vault_note(path: str):
+    def get_vault_note(path: str, principal=Depends(requires("read"))):
         with lock:
             note = store.get_note(path)
             if note is None:
@@ -405,8 +440,13 @@ def create_app(config_path=None):
     # ------------------------------------------------------------------
     # Runs: goal -> plan -> tasks -> approval -> artifact
     # ------------------------------------------------------------------
-    def _run_or_404(action):
+    def _run_or_404(action, principal=None, run_id=None):
         try:
+            if principal is not None and run_id is not None:
+                # Ownership is checked before any state change, and a run
+                # owned by someone else is indistinguishable from missing.
+                if not owns(principal, engine.owner_of(run_id)):
+                    raise KeyError(run_id)
             return action()
         except KeyError:
             raise HTTPException(status_code=404, detail="Run not found.")
@@ -414,35 +454,38 @@ def create_app(config_path=None):
             raise HTTPException(status_code=409, detail=str(error))
 
     @app.post("/api/runs", status_code=201)
-    def create_run(run: RunIn):
+    def create_run(run: RunIn, principal=Depends(requires("write"))):
         with lock:
-            return engine.create_run(run.goal, run.dataset_text, run.dataset_name)
+            return engine.create_run(run.goal, run.dataset_text,
+                                     run.dataset_name, owner=principal.subject)
 
     @app.get("/api/runs")
-    def list_runs():
+    def list_runs(principal=Depends(requires("read"))):
         with lock:
-            return {"runs": engine.list_runs()}
+            owner = None if principal.can("admin") else principal.subject
+            return {"runs": engine.list_runs(owner=owner)}
 
     @app.get("/api/runs/{run_id}")
-    def get_run(run_id: str):
+    def get_run(run_id: str, principal=Depends(requires("read"))):
         with lock:
-            return _run_or_404(lambda: engine.get_run(run_id))
+            return _run_or_404(lambda: engine.get_run(run_id), principal, run_id)
 
     @app.post("/api/runs/{run_id}/advance")
-    def advance_run(run_id: str):
+    def advance_run(run_id: str, principal=Depends(requires("write"))):
         with lock:
-            return _run_or_404(lambda: engine.advance(run_id))
+            return _run_or_404(lambda: engine.advance(run_id), principal, run_id)
 
     @app.post("/api/runs/{run_id}/cancel")
-    def cancel_run(run_id: str):
+    def cancel_run(run_id: str, principal=Depends(requires("write"))):
         with lock:
-            return _run_or_404(lambda: engine.cancel(run_id))
+            return _run_or_404(lambda: engine.cancel(run_id), principal, run_id)
 
     @app.post("/api/runs/{run_id}/approvals/{approval_id}")
-    def decide_approval(run_id: str, approval_id: str, decision: ApprovalIn):
+    def decide_approval(run_id: str, approval_id: str, decision: ApprovalIn, principal=Depends(requires("approve"))):
         with lock:
             return _run_or_404(
-                lambda: engine.decide_approval(run_id, approval_id, decision.decision)
+                lambda: engine.decide_approval(run_id, approval_id, decision.decision),
+                principal, run_id,
             )
 
     # ------------------------------------------------------------------

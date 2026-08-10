@@ -10,3 +10,6 @@ httpx>=0.28
 
 # Hosted-mode PostgreSQL driver (DATABASE_URL); local SQLite needs nothing:
 psycopg2-binary>=2.9
+
+# Hosted-mode token verification; local mode needs no authentication:
+pyjwt[crypto]>=2.8

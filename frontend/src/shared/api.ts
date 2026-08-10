@@ -15,6 +15,19 @@ export class ApiError extends Error {
   }
 }
 
+const TOKEN_KEY = 'aos-token'
+
+/** Bearer token for hosted deployments that enable managed auth. In
+ *  local mode none exists and the header is simply omitted. */
+function authHeaders(): Record<string, string> {
+  try {
+    const token = localStorage.getItem(TOKEN_KEY)
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  } catch {
+    return {}
+  }
+}
+
 async function request<T>(
   path: string,
   init: RequestInit = {},
@@ -25,7 +38,7 @@ async function request<T>(
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       ...init,
       signal: controller.signal,
     })
