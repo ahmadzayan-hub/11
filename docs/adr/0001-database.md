@@ -42,5 +42,22 @@ cannot reach them — access is wire-protocol only, as the database owner.
   host — the identical code path is what CI verifies against Postgres 16.
 - Statements autocommit (parity with the previous SQLite behavior);
   multi-statement transactional grouping is a future hardening item.
-- Sessions, memory, and vault files remain host-local; moving them is
-  the next ADR when the backend goes serverless.
+
+## Amendment (2026-08-10): full state moved behind the store
+
+The adapter now also carries `sessions`, `memory_kv`, and `vault_notes`
+(migration `agentic_os_sessions_memory_vault`, RLS deny-by-default like
+the rest). Consequences:
+
+- Sessions, transcripts, and preferences are durable in **both** modes —
+  a restart resumes the conversation instead of dropping it.
+- In hosted mode the Agent's memory backend switches to the database
+  (`DbMemoryBackend`), so no local memory file is required; local mode
+  keeps the `data/memory.json` contract unchanged.
+- Published vault notes are written to the store first (source of truth,
+  served by `/api/vault`) and to the vault folder when the filesystem
+  allows, so a read-only host degrades gracefully instead of failing the
+  publish.
+- The backend now needs no local disk. The remaining hosting constraint
+  is connection style, not state: it must hold a TCP connection to
+  PostgreSQL.

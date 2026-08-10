@@ -8,11 +8,11 @@ snapshots so the frontend never has to parse reply strings.
 The command-line application (python main.py) is unaffected by this module.
 """
 
+import json
 import os
 import re
 import threading
 import uuid
-from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from agent import Agent
 from server.model_gateway import ModelGateway
 from server.runs import RunEngine
-from server.storage import open_store
+from server.storage import DbMemoryBackend, PostgresStore, open_store
 from utils import load_config
 
 MAX_SESSIONS = 32
@@ -52,15 +52,40 @@ def now_iso():
 
 
 class Session:
-    """One conversation: an Agent instance plus its visible transcript."""
+    """One conversation: an Agent instance plus its visible transcript.
 
-    def __init__(self, config):
-        self.id = uuid.uuid4().hex
-        self.agent = Agent(config)
-        self.transcript = []
-        self.ended = False
-        self.created_at = now_iso()
-        self._next_entry_id = 1
+    Sessions are durable: every mutation is written back to the store, so
+    conversations survive an application restart in both SQLite and
+    hosted-PostgreSQL modes."""
+
+    def __init__(self, config, memory_backend=None, row=None):
+        self.agent = Agent(config, memory_backend=memory_backend)
+        if row is None:
+            self.id = uuid.uuid4().hex
+            self.transcript = []
+            self.ended = False
+            self.created_at = now_iso()
+            self._next_entry_id = 1
+        else:
+            self.id = row["id"]
+            self.created_at = row["created_at"]
+            self.ended = bool(row["ended"])
+            self.transcript = json.loads(row["transcript_json"])
+            self._next_entry_id = row["next_entry_id"]
+            self.agent.preferences.update(json.loads(row["preferences_json"]))
+            self.agent.history = json.loads(row["history_json"])
+
+    def to_row(self):
+        return {
+            "id": self.id,
+            "created_at": self.created_at,
+            "updated_at": now_iso(),
+            "ended": 1 if self.ended else 0,
+            "preferences_json": json.dumps(self.agent.preferences),
+            "history_json": json.dumps(self.agent.history),
+            "transcript_json": json.dumps(self.transcript),
+            "next_entry_id": self._next_entry_id,
+        }
 
     def add_entry(self, role, text):
         entry = {
@@ -86,7 +111,7 @@ class Session:
             "memory": dict(self.agent.memory),
             "memory_entries": self.agent.memory_entries(),
             "history": list(self.agent.history),
-            "memory_persisted": bool(self.agent.memory_file),
+            "memory_persisted": self.agent.memory_persistent,
             "commands": COMMANDS,
         }
 
@@ -128,9 +153,7 @@ def create_app(config_path=None):
         openapi_url=None,
     )
 
-    sessions = OrderedDict()
     lock = threading.Lock()
-    app.state.sessions = sessions
 
     gateway = ModelGateway()
     # Hosted PostgreSQL (DATABASE_URL / config "database_url") when
@@ -145,6 +168,12 @@ def create_app(config_path=None):
         gateway,
     )
     app.state.engine = engine
+    app.state.store = store
+    # Hosted mode keeps agent memory in the database so the backend needs
+    # no local files; local mode keeps the data/memory.json contract.
+    memory_backend = (
+        DbMemoryBackend(store) if isinstance(store, PostgresStore) else None
+    )
 
     allowed_origins = [
         origin.strip()
@@ -184,13 +213,16 @@ def create_app(config_path=None):
         )
 
     def get_session(session_id):
-        session = sessions.get(session_id)
-        if session is None:
+        row = store.get_session(session_id)
+        if row is None:
             raise HTTPException(
                 status_code=404,
                 detail="Session not found. It may have expired — start a new session.",
             )
-        return session
+        return Session(config, memory_backend, row=row)
+
+    def save_session(session):
+        store.upsert_session(session.to_row())
 
     def clean_single_line(value, field_name):
         value = value.strip()
@@ -216,10 +248,9 @@ def create_app(config_path=None):
     @app.post("/api/sessions", status_code=201)
     def create_session():
         with lock:
-            while len(sessions) >= MAX_SESSIONS:
-                sessions.popitem(last=False)
-            session = Session(config)
-            sessions[session.id] = session
+            session = Session(config, memory_backend)
+            save_session(session)
+            store.trim_sessions(MAX_SESSIONS)
             return session.snapshot()
 
     @app.get("/api/sessions/{session_id}")
@@ -234,6 +265,7 @@ def create_app(config_path=None):
             session.ended = True
             reply = session.agent.process_input("/exit")
             session.add_entry("agent", reply)
+            save_session(session)
             return session.snapshot()
 
     # ------------------------------------------------------------------
@@ -256,6 +288,7 @@ def create_app(config_path=None):
             entry = session.add_entry("agent", reply)
             if text.split()[0].lower() == "/exit":
                 session.ended = True
+            save_session(session)
             return {"reply": entry, "state": session.snapshot()}
 
     @app.delete("/api/sessions/{session_id}/history")
@@ -263,6 +296,7 @@ def create_app(config_path=None):
         with lock:
             session = get_session(session_id)
             session.agent.history.clear()
+            save_session(session)
             return {
                 "reply_text": "Conversation history cleared.",
                 "state": session.snapshot(),
@@ -283,6 +317,7 @@ def create_app(config_path=None):
         with lock:
             session = get_session(session_id)
             reply = session.agent.set_preference(key, value)
+            save_session(session)
             return {"reply_text": reply, "state": session.snapshot()}
 
     # ------------------------------------------------------------------
@@ -297,6 +332,7 @@ def create_app(config_path=None):
             # are never overwritten (lost-update prevention).
             session.agent.reload_memory()
             reply = session.agent.add_memory(information, memory.category)
+            save_session(session)
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.put("/api/sessions/{session_id}/memory/{key}")
@@ -308,6 +344,7 @@ def create_app(config_path=None):
             if key not in session.agent.memory:
                 raise HTTPException(status_code=404, detail=f"No memory named {key}.")
             reply = session.agent.update_memory(key, information, memory.category)
+            save_session(session)
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.get("/api/sessions/{session_id}/export")
@@ -337,6 +374,7 @@ def create_app(config_path=None):
             if key not in session.agent.memory:
                 raise HTTPException(status_code=404, detail=f"No memory named {key}.")
             reply = session.agent.remove_memory(key)
+            save_session(session)
             return {"reply_text": reply, "state": session.snapshot()}
 
     @app.delete("/api/sessions/{session_id}/memory")
@@ -345,7 +383,24 @@ def create_app(config_path=None):
             session = get_session(session_id)
             session.agent.reload_memory()
             reply = session.agent.clear_all_memory()
+            save_session(session)
             return {"reply_text": reply, "state": session.snapshot()}
+
+    # ------------------------------------------------------------------
+    # Vault: durable record of approved, published knowledge
+    # ------------------------------------------------------------------
+    @app.get("/api/vault")
+    def list_vault_notes():
+        with lock:
+            return {"notes": store.list_notes()}
+
+    @app.get("/api/vault/note")
+    def get_vault_note(path: str):
+        with lock:
+            note = store.get_note(path)
+            if note is None:
+                raise HTTPException(status_code=404, detail="Note not found.")
+            return note
 
     # ------------------------------------------------------------------
     # Runs: goal -> plan -> tasks -> approval -> artifact

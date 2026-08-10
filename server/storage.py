@@ -31,6 +31,17 @@ SCHEMA_STATEMENTS = [
       id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
       name TEXT NOT NULL, kind TEXT NOT NULL, version INTEGER NOT NULL,
       content TEXT NOT NULL, published_path TEXT, created_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      ended INTEGER NOT NULL, preferences_json TEXT NOT NULL,
+      history_json TEXT NOT NULL, transcript_json TEXT NOT NULL,
+      next_entry_id INTEGER NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS memory_kv (
+      key TEXT PRIMARY KEY, text TEXT NOT NULL,
+      category TEXT NOT NULL, updated TEXT)""",
+    """CREATE TABLE IF NOT EXISTS vault_notes (
+      path TEXT PRIMARY KEY, run_id TEXT NOT NULL,
+      content TEXT NOT NULL, created_at TEXT NOT NULL)""",
 ]
 
 
@@ -104,6 +115,83 @@ class SqlStore:
             "SELECT * FROM approvals WHERE id = ? AND run_id = ?",
             (approval_id, run_id))
         return rows[0] if rows else None
+
+    # -- sessions ---------------------------------------------------------
+    def get_session(self, session_id):
+        rows = self._exec("SELECT * FROM sessions WHERE id = ?", (session_id,))
+        return rows[0] if rows else None
+
+    def upsert_session(self, row):
+        fields = {k: v for k, v in row.items() if k != "id"}
+        assignments = ", ".join(f"{column} = ?" for column in fields)
+        cursor = self._conn.cursor()
+        cursor.execute(
+            f"UPDATE sessions SET {assignments} WHERE id = ?".replace(
+                "?", self.placeholder),
+            tuple(fields.values()) + (row["id"],))
+        if cursor.rowcount == 0:
+            self.insert("sessions", row)
+        else:
+            self._commit()
+
+    def trim_sessions(self, keep):
+        self._exec(
+            "DELETE FROM sessions WHERE id NOT IN "
+            "(SELECT id FROM sessions ORDER BY updated_at DESC LIMIT ?)",
+            (keep,))
+
+    # -- shared memory ----------------------------------------------------
+    def memory_load(self):
+        return {
+            row["key"]: {"text": row["text"], "category": row["category"],
+                         "updated": row["updated"]}
+            for row in self._exec("SELECT * FROM memory_kv")
+        }
+
+    def memory_save(self, payload):
+        self._exec("DELETE FROM memory_kv")
+        for key, entry in payload.items():
+            self.insert("memory_kv", {
+                "key": key, "text": entry["text"],
+                "category": entry["category"], "updated": entry["updated"]})
+
+    # -- vault notes ------------------------------------------------------
+    def upsert_note(self, path, run_id, content, created_at):
+        self._exec("DELETE FROM vault_notes WHERE path = ?", (path,))
+        self.insert("vault_notes", {"path": path, "run_id": run_id,
+                                    "content": content,
+                                    "created_at": created_at})
+
+    def list_notes(self):
+        return self._exec(
+            "SELECT path, run_id, created_at FROM vault_notes "
+            "ORDER BY created_at DESC")
+
+    def get_note(self, path):
+        rows = self._exec("SELECT * FROM vault_notes WHERE path = ?", (path,))
+        return rows[0] if rows else None
+
+
+class DbMemoryBackend:
+    """Agent memory persisted in the store's memory_kv table (hosted mode)."""
+
+    persistent = True
+
+    def __init__(self, store):
+        self._store = store
+
+    def load(self):
+        try:
+            return self._store.memory_load()
+        except Exception:
+            return {}
+
+    def save(self, payload):
+        try:
+            self._store.memory_save(payload)
+            return True
+        except Exception:
+            return False
 
 
 class SQLiteStore(SqlStore):

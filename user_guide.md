@@ -15,11 +15,11 @@ python -m uvicorn server.app:app --port 8000
 ```
 
 Open <http://localhost:8000>. A session starts automatically, and
-**refreshing the page reconnects to the same conversation** (a new session
-begins only when you ask for one, end the current one, or restart the
-server). Stop the server with Ctrl+C; use **End session** in the sidebar
-to close a session gracefully first (the agent says goodbye and the
-composer locks).
+**refreshing the page reconnects to the same conversation** — as does
+restarting the server, because conversations are stored durably. A new
+session begins only when you ask for one or end the current one. Stop the
+server with Ctrl+C; use **End session** in the sidebar to close a session
+gracefully first (the agent says goodbye and the composer locks).
 
 On your first visit a short onboarding dialog explains the basics — it
 appears once and can be dismissed permanently.
@@ -213,8 +213,9 @@ always answers with an explanation of what to do instead.
   reports are written to `vault/`. Everything stays on the machine running
   Agentic OS — nothing is sent over the internet unless you configure the
   optional Groq narrator on the server.
-- Conversation history and activity exist in memory for the current
-  session only and disappear when the server restarts.
+- Conversations (messages, preferences, and history) are stored durably
+  alongside runs, so they survive a restart. The Activity timeline is
+  browser-side and resets on reload.
 - The web app stores three things in your browser: the theme choice, the
   onboarding-dismissed flag, and the current session id (so a refresh can
   reconnect). It stores no personal content.

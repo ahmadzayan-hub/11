@@ -13,6 +13,29 @@ from utils import load_memory, save_json, validate_input
 DEFAULT_MEMORY_CATEGORY = "general"
 CATEGORY_PATTERN = re.compile(r"^[a-z][a-z0-9 _-]{0,23}$")
 
+
+class FileMemoryBackend:
+    """Default memory persistence: a JSON file on this computer."""
+
+    def __init__(self, path):
+        self.path = path
+
+    @property
+    def persistent(self):
+        return bool(self.path)
+
+    def load(self):
+        return load_memory(self.path) if self.path else {}
+
+    def save(self, payload):
+        if not self.path:
+            return True
+        try:
+            save_json(self.path, payload)
+            return True
+        except OSError:
+            return False
+
 DEFAULT_PREFERENCES = {
     "tone": "friendly",
     "language": "English",
@@ -31,7 +54,7 @@ TONE_STYLES = {
 class Agent:
     """Manages preferences, history, memory, and command handling."""
 
-    def __init__(self, config):
+    def __init__(self, config, memory_backend=None):
         self.name = config.get("agent_name", "Agentic OS")
         self.version = config.get("version", "1.0.0")
 
@@ -46,12 +69,17 @@ class Agent:
 
         self.history = []
         self.memory_file = config.get("memory_file")
+        self._memory_backend = memory_backend or FileMemoryBackend(self.memory_file)
         self.reload_memory()
 
-    def reload_memory(self):
-        """(Re)load memory from disk, replacing the in-memory copy.
+    @property
+    def memory_persistent(self):
+        return self._memory_backend.persistent
 
-        Called at startup and again before shared-file mutations so that
+    def reload_memory(self):
+        """(Re)load memory from the backend, replacing the in-memory copy.
+
+        Called at startup and again before shared-store mutations so that
         two concurrent sessions cannot overwrite each other's saves.
         self.memory keeps the simple key -> text contract; categories and
         timestamps live in self.memory_meta. Both plain-string files (the
@@ -59,7 +87,7 @@ class Agent:
         """
         self.memory = {}
         self.memory_meta = {}
-        raw = load_memory(self.memory_file) if self.memory_file else {}
+        raw = self._memory_backend.load()
         for key, value in raw.items():
             if isinstance(value, dict):
                 text = str(value.get("text", "")).strip()
@@ -275,9 +303,7 @@ class Agent:
         return f"memory_{highest + 1}"
 
     def _save_memory(self):
-        """Write memory to disk. Returns True on success, False on failure."""
-        if not self.memory_file:
-            return True
+        """Persist memory via the backend. True on success, False on failure."""
         payload = {
             entry["key"]: {
                 "text": entry["text"],
@@ -286,11 +312,7 @@ class Agent:
             }
             for entry in self.memory_entries()
         }
-        try:
-            save_json(self.memory_file, payload)
-            return True
-        except OSError:
-            return False
+        return self._memory_backend.save(payload)
 
     def _saved_message(self, base):
         """Report the outcome honestly: a failed disk write is never

@@ -17,18 +17,27 @@ placeholder controls — absent capabilities have no UI.
    accuracy cannot honestly be promised by any AI system; deterministic
    calculations are exact for the operations implemented.
 
+## Resolved since the first release
+
+Sessions, transcripts, preferences, memory, and published knowledge are
+now durable in the storage layer: a server restart no longer loses a
+conversation, and in hosted mode (`DATABASE_URL`) the backend keeps no
+required local files. Both behaviors are covered by tests
+(`test_sessions_survive_an_application_restart`,
+`test_hosted_mode_keeps_memory_in_the_database`).
+
 ## Platform
 
 5. Single-user, local-first: no authentication, authorization, tenancy,
-   or rate limiting. Do not expose beyond localhost as-is.
-6. Sessions and transcripts live in server memory (runs, memory, and
-   published reports are durable); a server restart starts a fresh
-   session.
-7. Runs advance while the Runs view is open (client-stepped execution);
+   or rate limiting. Do not expose beyond localhost as-is. **This is now
+   the last blocker for hosted multi-user operation** — persistence is
+   no longer the constraint.
+6. Runs advance while the Runs view is open (client-stepped execution);
    there is no background worker. A paused/interrupted run resumes from
    its durable state at any time.
-8. Vercel hosts the static frontend only; the backend needs a persistent
-   host (see docs/VERCEL_DEPLOYMENT.md). No deployment was made from the
+7. Vercel hosts the static frontend only; the backend needs a host that
+   can hold TCP connections to PostgreSQL (see
+   docs/VERCEL_DEPLOYMENT.md). No deployment was made from the
    implementation environment.
 9. Android support is a verified installable PWA; a native Capacitor
    project is documented but not shipped (no Android SDK available to

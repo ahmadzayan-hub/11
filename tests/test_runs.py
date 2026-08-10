@@ -100,6 +100,22 @@ class RunEngineTestCase(unittest.TestCase):
         self.assertEqual(publish["state"], "skipped")
         self.assertFalse((self.vault / "Reports").exists())
 
+    def test_published_notes_are_also_durable_in_the_store(self):
+        run = self.advance_until(self.create_run()["id"], {"awaiting_approval"})
+        self.client.post(
+            f"/api/runs/{run['id']}/approvals/{run['approvals'][0]['id']}",
+            json={"decision": "approve"})
+        listing = self.client.get("/api/vault").json()["notes"]
+        self.assertEqual(len(listing), 2)
+        paths = {note["path"] for note in listing}
+        self.assertIn(f"Runs/{run['id']}.md", paths)
+        report_path = next(p for p in paths if p.startswith("Reports/"))
+        note = self.client.get("/api/vault/note",
+                               params={"path": report_path}).json()
+        self.assertIn("type: analytics-report", note["content"])
+        missing = self.client.get("/api/vault/note", params={"path": "nope.md"})
+        self.assertEqual(missing.status_code, 404)
+
     def test_approve_publishes_exactly_once_to_the_vault(self):
         run = self.advance_until(self.create_run()["id"], {"awaiting_approval"})
         approval_id = run["approvals"][0]["id"]
@@ -196,10 +212,26 @@ class RunEnginePostgresTestCase(RunEngineTestCase):
         conn = psycopg2.connect(PG_TEST_URL)
         conn.autocommit = True
         conn.cursor().execute(
-            "DROP TABLE IF EXISTS artifacts, approvals, tasks, runs CASCADE"
+            "DROP TABLE IF EXISTS artifacts, approvals, tasks, runs, "
+            "sessions, memory_kv, vault_notes CASCADE"
         )
         conn.close()
         super().setUp()
+
+    def test_hosted_mode_keeps_memory_in_the_database(self):
+        state = self.client.post("/api/sessions").json()
+        self.assertTrue(state["memory_persisted"])
+        self.client.post(
+            f"/api/sessions/{state['session_id']}/memory",
+            json={"information": "Hosted fact", "category": "work"})
+
+        # A brand-new app instance over the same DATABASE_URL sees the
+        # memory — and no local memory file was ever written.
+        fresh = TestClient(create_app(self.config_path),
+                           raise_server_exceptions=False)
+        second = fresh.post("/api/sessions").json()
+        self.assertIn("Hosted fact", second["memory"].values())
+        self.assertFalse((self.root / "memory.json").exists())
 
 
 if __name__ == "__main__":

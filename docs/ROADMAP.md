@@ -25,10 +25,12 @@ facts reach the narrator.
 2. PostgreSQL adapter behind the existing `RunEngine`/memory interfaces,
    plus object storage for datasets and artifacts; migration tooling,
    backups, and restore drills (documented RPO/RTO).
-   **Progress:** run-engine Postgres adapter shipped and CI-enforced
-   against Postgres 16; Supabase project `agentic-os` provisioned with
-   the schema, RLS deny-by-default (ADR 0001). Remaining: sessions,
-   memory, and vault storage; backups and restore drills.
+   **Done:** run-engine Postgres adapter shipped and CI-enforced against
+   Postgres 16; Supabase project `agentic-os` provisioned, RLS
+   deny-by-default; sessions, memory, and published vault notes all moved
+   behind the store, so the backend requires no local disk (ADR 0001 and
+   its amendment). **Remaining:** object storage for large datasets;
+   backups and restore drills (RPO/RTO).
 3. Durable workflow execution: evaluate **Vercel Workflows for Python**
    directly against the run-engine contract (pause/resume/recovery)
    before committing to the abstraction; otherwise database-backed jobs

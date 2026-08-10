@@ -223,7 +223,15 @@ class RunEngine:
         for t in self.store.get_tasks(run_id):
             log_lines.append(f"| {t['title']} | {t['state']}: {t['summary'] or ''} |")
         log_lines.append(f"\nReport: [[{note.stem}]]\n")
-        (logs / f"{run_id}.md").write_text("\n".join(log_lines), encoding="utf-8")
+        log_note = logs / f"{run_id}.md"
+        log_note.write_text("\n".join(log_lines), encoding="utf-8")
+        # Durable record: published notes also live in the store, so hosted
+        # (stateless) backends keep them and /api/vault can serve them.
+        now = _now()
+        self.store.upsert_note(f"Reports/{note.name}", run_id,
+                               note.read_text(encoding="utf-8"), now)
+        self.store.upsert_note(f"Runs/{run_id}.md", run_id,
+                               log_note.read_text(encoding="utf-8"), now)
         return note
 
     def cancel(self, run_id):

@@ -213,8 +213,9 @@ See `user_guide.md` for the full command reference.
   for free text; it does not use an AI language model.
 - Preference changes apply to the current session; permanent defaults are
   edited in `config.json`.
-- Sessions survive a browser refresh but not a server restart; after a
-  restart the app starts a fresh session (saved memory persists).
+- Sessions survive both a browser refresh and a server restart: the
+  conversation, its preferences, and its history are stored durably
+  (SQLite locally, PostgreSQL when `DATABASE_URL` is set).
 - The server is designed for local, single-user use — there is no
   authentication layer.
 
