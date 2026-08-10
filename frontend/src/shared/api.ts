@@ -1,4 +1,12 @@
-import type { ExportPayload, RunDetail, RunSummary, SessionState, TranscriptEntry } from './types'
+import type {
+  AuthConfig,
+  ExportPayload,
+  IdentityInfo,
+  RunDetail,
+  RunSummary,
+  SessionState,
+  TranscriptEntry,
+} from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 const REQUEST_TIMEOUT_MS = 10_000
@@ -15,7 +23,24 @@ export class ApiError extends Error {
   }
 }
 
-const TOKEN_KEY = 'aos-token'
+export const TOKEN_KEY = 'aos-token'
+
+export function storeToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    /* private mode — the token lives for this page only */
+  }
+}
+
+export function hasToken(): boolean {
+  try {
+    return Boolean(localStorage.getItem(TOKEN_KEY))
+  } catch {
+    return false
+  }
+}
 
 /** Bearer token for hosted deployments that enable managed auth. In
  *  local mode none exists and the header is simply omitted. */
@@ -84,6 +109,8 @@ export interface MessageResult {
 
 export const api = {
   health: () => request<{ status: string; agent_name: string; version: string }>('/api/health'),
+  authConfig: () => request<AuthConfig>('/api/auth/config'),
+  identity: () => request<IdentityInfo>('/api/identity'),
   createSession: () => request<SessionState>('/api/sessions', { method: 'POST' }),
   getSession: (id: string) => request<SessionState>(`/api/sessions/${id}`),
   endSession: (id: string) => request<SessionState>(`/api/sessions/${id}`, { method: 'DELETE' }),

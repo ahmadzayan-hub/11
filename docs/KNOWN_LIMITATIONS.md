@@ -28,12 +28,16 @@ required local files. Both behaviors are covered by tests
 
 ## Platform
 
-5. Authentication ships as an adapter (ADR 0002): local mode is
+5. Authentication ships as an adapter (ADR 0002/0003): local mode is
    single-owner with no login; hosted mode verifies managed-provider
-   JWTs with server-side roles and per-owner isolation. **No sign-in UI
-   exists yet** — a hosted deployment must obtain tokens through its own
-   provider front door. Rate limiting is still absent. Treat a hosted
-   deployment as pre-production until the sign-in flow lands.
+   JWTs with server-side roles, per-owner isolation, a sign-in screen,
+   and per-caller rate limiting. Caveats: the live provider round-trip
+   was never executed (this environment blocks HTTPS to the provider),
+   so first-deployment sign-in must be confirmed once by hand; tokens
+   are stored in browser storage without refresh rotation; and the rate
+   limiter is per process, so multi-instance deployments need a shared
+   store. There is no admin UI for granting roles — roles come from
+   token claims or `AGENTIC_OS_DEFAULT_ROLE`.
 6. Runs advance while the Runs view is open (client-stepped execution);
    there is no background worker. A paused/interrupted run resumes from
    its durable state at any time.

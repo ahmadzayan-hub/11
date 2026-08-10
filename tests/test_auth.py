@@ -239,5 +239,116 @@ class ApiAuthorizationTestCase(unittest.TestCase):
                                              headers=admin).json()["runs"]), 1)
 
 
+@unittest.skipUnless(DEPS_AVAILABLE, "fastapi/pyjwt are not installed")
+class AuthConfigTestCase(unittest.TestCase):
+    """The public sign-in configuration must never carry a secret."""
+
+    def build(self, env):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        config_path = root / "config.json"
+        config_path.write_text(json.dumps({
+            "agent_name": "Config Test",
+            "memory_file": str(root / "memory.json"),
+            "database_file": str(root / "agentic.db"),
+            "vault_dir": str(root / "vault"),
+        }), encoding="utf-8")
+        return TestClient(create_app(config_path, env=env),
+                          raise_server_exceptions=False)
+
+    def test_local_mode_advertises_no_sign_in(self):
+        body = self.build({}).get("/api/auth/config").json()
+        self.assertEqual(body["mode"], "local")
+        self.assertEqual(body["flows"], [])
+
+    def test_hosted_mode_advertises_publishable_config_only(self):
+        client = self.build({
+            "AGENTIC_OS_JWT_SECRET": SECRET,
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_ANON_KEY": "publishable-anon-key",
+        })
+        response = client.get("/api/auth/config")
+        body = response.json()
+        self.assertEqual(body["mode"], "jwt")
+        self.assertEqual(body["provider"], "supabase")
+        self.assertEqual(body["publishable_key"], "publishable-anon-key")
+        self.assertIn("password", body["flows"])
+        # The signing secret must never appear in a public response.
+        self.assertNotIn(SECRET, response.text)
+
+    def test_config_is_reachable_without_a_token(self):
+        client = self.build({"AGENTIC_OS_JWT_SECRET": SECRET,
+                             "AGENTIC_OS_ENV": "production"})
+        self.assertEqual(client.get("/api/auth/config").status_code, 200)
+
+    def test_hosted_mode_without_provider_urls_offers_no_flows(self):
+        body = self.build({"AGENTIC_OS_JWT_SECRET": SECRET}).get(
+            "/api/auth/config").json()
+        self.assertEqual(body["flows"], [])
+
+
+@unittest.skipUnless(DEPS_AVAILABLE, "fastapi/pyjwt are not installed")
+class RateLimitTestCase(unittest.TestCase):
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        config_path = root / "config.json"
+        config_path.write_text(json.dumps({
+            "agent_name": "Rate Test",
+            "memory_file": str(root / "memory.json"),
+            "database_file": str(root / "agentic.db"),
+            "vault_dir": str(root / "vault"),
+        }), encoding="utf-8")
+        self.client = TestClient(
+            create_app(config_path,
+                       env={"AGENTIC_OS_RATE_LIMIT": "3",
+                            "AGENTIC_OS_RATE_WINDOW": "60"}),
+            raise_server_exceptions=False)
+
+    def test_writes_are_limited_and_report_retry_after(self):
+        statuses = [self.client.post("/api/sessions").status_code
+                    for _ in range(5)]
+        self.assertEqual(statuses[:3], [201, 201, 201])
+        self.assertEqual(statuses[3], 429)
+        response = self.client.post("/api/sessions")
+        self.assertEqual(response.status_code, 429)
+        self.assertTrue(int(response.headers["Retry-After"]) >= 1)
+        self.assertNotIn("traceback", response.text.lower())
+
+    def test_reads_are_not_limited(self):
+        for _ in range(5):
+            self.client.post("/api/sessions")
+        for _ in range(10):
+            self.assertEqual(self.client.get("/api/health").status_code, 200)
+
+    def test_remaining_budget_is_reported(self):
+        response = self.client.post("/api/sessions")
+        self.assertEqual(response.headers["X-RateLimit-Remaining"], "2")
+
+
+@unittest.skipUnless(DEPS_AVAILABLE, "fastapi/pyjwt are not installed")
+class RateLimiterUnitTestCase(unittest.TestCase):
+    def test_budget_refills_over_time(self):
+        from server.rate_limit import RateLimiter
+
+        now = [0.0]
+        limiter = RateLimiter(limit=2, window_seconds=60, clock=lambda: now[0])
+        self.assertTrue(limiter.check("k")[0])
+        self.assertTrue(limiter.check("k")[0])
+        self.assertFalse(limiter.check("k")[0])
+        now[0] += 31  # half a window restores one token
+        self.assertTrue(limiter.check("k")[0])
+
+    def test_callers_have_independent_budgets(self):
+        from server.rate_limit import RateLimiter
+
+        limiter = RateLimiter(limit=1, window_seconds=60)
+        self.assertTrue(limiter.check("alice")[0])
+        self.assertFalse(limiter.check("alice")[0])
+        self.assertTrue(limiter.check("bob")[0])
+
+
 if __name__ == "__main__":
     unittest.main()

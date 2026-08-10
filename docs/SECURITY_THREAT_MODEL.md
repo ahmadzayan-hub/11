@@ -34,12 +34,19 @@ User memory (`data/memory.json`), run data and reports (`data/agentic.db`,
 | Cross-tenant access | `owner` on sessions and runs; reads filtered, writes ownership-checked before any state change; other owners' resources answer 404 (no existence oracle) | isolation tests |
 | Credential leakage in errors | Auth failures return fixed messages; token content never echoed | leak test |
 
+| Model/resource denial of service, runaway loops | Per-caller token bucket on all state-changing API calls; `429` with `Retry-After`; default sized above the app's own cadence (ADR 0003) | limiter + API tests |
+| Credential handling by this app | Sign-in posts directly to the identity provider with its publishable key; Agentic OS never receives a password | sign-in unit tests |
+
 ## Known gaps (explicit)
 
-1. No sign-in UI yet — hosted deployments issue tokens through their own
-   provider front door (see ADR 0002).
-2. No rate limiting.
-3. No CSRF tokens (tokens travel in the Authorization header, not
+1. The live provider sign-in round-trip is unverified (this environment
+   blocks HTTPS to the provider); confirm once on first deployment.
+2. Tokens sit in browser storage without refresh rotation — an expired
+   token requires signing in again. XSS would expose a token; mitigated
+   by strict headers and no third-party scripts.
+3. The rate limiter is per process; multi-instance needs a shared store.
+4. No CSRF tokens (tokens travel in the Authorization header, not
    cookies; CORS is restricted).
+5. No admin UI for granting roles.
 4. Groq path could not be live-tested here (no key); its failure handling
    is defensive-by-construction and falls back deterministically.

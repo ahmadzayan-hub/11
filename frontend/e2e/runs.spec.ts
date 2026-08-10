@@ -30,11 +30,19 @@ test('analytics run: goal to approved, published, evidence-backed report', async
   await expect(page.getByText('state: completed')).toBeVisible()
 })
 
-test('analytics run can be cancelled', async ({ page }) => {
+test('an analytics run can be paused and then cancelled', async ({ page }) => {
   await skipOnboarding(page)
   await page.goto('/')
   await openTab(page, /^Runs/)
   await page.getByRole('button', { name: 'Start run' }).click()
+
+  // Pause first so the pipeline stops advancing; cancelling is then a
+  // deterministic decision rather than a race against the next stage.
+  await page.getByRole('button', { name: 'Pause' }).click()
+  await expect(page.getByRole('button', { name: 'Resume' })).toBeVisible()
+
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByText('state: cancelled')).toBeVisible()
+  // A cancelled run is terminal: no further stages may run.
+  await expect(page.getByRole('button', { name: 'Resume' })).toHaveCount(0)
 })

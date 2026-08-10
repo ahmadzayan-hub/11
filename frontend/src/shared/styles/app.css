@@ -1326,6 +1326,62 @@ form.field {
   flex-shrink: 0;
 }
 
+/* Sign-in */
+.signin {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5) var(--space-4);
+  background: var(--bg);
+}
+
+.signin__card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-2);
+  padding: var(--space-6) var(--space-5);
+}
+
+.signin__mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  font-size: var(--text-l);
+  margin-bottom: var(--space-4);
+}
+
+.signin__title {
+  font-size: var(--text-xl);
+  margin-bottom: var(--space-2);
+}
+
+.signin__desc {
+  color: var(--text-muted);
+  font-size: var(--text-s);
+  margin-bottom: var(--space-5);
+}
+
+.signin__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-5);
+}
+
+.signin__warning {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-radius: var(--radius-m);
+  padding: var(--space-3);
+  font-size: var(--text-s);
+}
+
 /* Runs */
 .runform__textarea {
   min-height: 120px;

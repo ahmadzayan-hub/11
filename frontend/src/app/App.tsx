@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityView } from '../features/activity/ActivityView'
+import { SignIn } from '../features/auth/SignIn'
 import { ChatView } from '../features/chat/ChatView'
 import type { ComposerHandle } from '../features/chat/Composer'
 import { CommandPalette } from '../features/commands/CommandPalette'
@@ -104,6 +105,16 @@ export function App() {
 
   const { session, bootError, status } = store
 
+  // Hosted deployments gate everything behind the identity provider.
+  if (store.needsSignIn && store.authConfig) {
+    return (
+      <SignIn
+        config={store.authConfig}
+        onSignedIn={(token) => void store.signIn(token)}
+      />
+    )
+  }
+
   if (!session) {
     return (
       <div className="shell">
@@ -195,12 +206,28 @@ export function App() {
         </button>
         <div className="sidebar__identity">
           <span className="sidebar__avatar" aria-hidden="true">
-            {userName ? userName.charAt(0).toUpperCase() : 'A'}
+            {(store.identity?.principal.email || userName || 'A').charAt(0).toUpperCase()}
           </span>
           <span className="sidebar__who">
-            <span>{userName ?? session.agent_name}</span>
-            <span className="sidebar__meta">v{session.version} · local</span>
+            <span>{store.identity?.principal.email || userName || session.agent_name}</span>
+            <span className="sidebar__meta">
+              v{session.version} · {store.identity?.principal.role ?? 'local'}
+            </span>
           </span>
+          {store.identity ? (
+            <button
+              type="button"
+              className="iconbtn"
+              aria-label="Sign out"
+              title="Sign out"
+              onClick={() => {
+                store.signOut()
+                setDrawerOpen(false)
+              }}
+            >
+              <Icon name="power" size={16} />
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

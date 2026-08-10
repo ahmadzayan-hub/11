@@ -1,7 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { api, ApiError } from '../shared/api'
-import type { ActivityEvent, ActivityKind, ConnectionStatus, SessionState } from '../shared/types'
+import { api, ApiError, hasToken, storeToken } from '../shared/api'
+import type {
+  ActivityEvent,
+  ActivityKind,
+  AuthConfig,
+  ConnectionStatus,
+  IdentityInfo,
+  SessionState,
+} from '../shared/types'
 
 export interface OperationOutcome {
   ok: boolean
@@ -9,6 +16,11 @@ export interface OperationOutcome {
 }
 
 interface Store {
+  authConfig: AuthConfig | null
+  needsSignIn: boolean
+  identity: IdentityInfo | null
+  signIn: (token: string) => Promise<void>
+  signOut: () => void
   session: SessionState | null
   bootError: string | null
   status: ConnectionStatus
@@ -67,6 +79,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [offline, setOffline] = useState(!navigator.onLine)
   const [lastError, setLastError] = useState(false)
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null)
+  const [identity, setIdentity] = useState<IdentityInfo | null>(null)
+  const [needsSignIn, setNeedsSignIn] = useState(false)
   const pendingCount = useRef(0)
   const [pending, setPending] = useState(0)
 
@@ -109,6 +124,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [pushEvent])
 
+  // A 401 anywhere means the token is missing, expired, or revoked:
+  // drop it and return the user to the sign-in screen.
+  const handleUnauthorized = useCallback(() => {
+    storeToken(null)
+    setIdentity(null)
+    setSession(null)
+    setNeedsSignIn(true)
+  }, [])
+
   const start = useCallback(async () => {
     beginWork()
     setBootError(null)
@@ -122,17 +146,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLastSyncedAt(new Date().toISOString())
       pushEvent('Session started', 'success', state.agent_name)
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorized()
+        return
+      }
       const message = error instanceof ApiError ? error.message : 'Could not start a session.'
       setBootError(message)
       pushEvent('Session start failed', 'error', message)
     } finally {
       endWork()
     }
-  }, [beginWork, endWork, pushEvent])
+  }, [beginWork, endWork, pushEvent, handleUnauthorized])
 
   // On page load, restore the previous session when the server still has
   // it and it hasn't ended; otherwise fall back to a fresh session.
   const bootstrap = useCallback(async () => {
+    // Ask the server whether this deployment requires an account before
+    // touching any protected endpoint.
+    try {
+      const config = await api.authConfig()
+      setAuthConfig(config)
+      if (config.mode === 'jwt') {
+        if (!hasToken()) {
+          setNeedsSignIn(true)
+          return
+        }
+        try {
+          setIdentity(await api.identity())
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 401) {
+            handleUnauthorized()
+            return
+          }
+        }
+      }
+    } catch {
+      // An unreachable config endpoint is handled by the session boot
+      // below, which surfaces a retryable error state.
+    }
+
     const storedId = readStoredSessionId()
     if (storedId) {
       beginWork()
@@ -146,6 +198,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return
         }
       } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          handleUnauthorized()
+          return
+        }
         // Offline or server error: surface it instead of silently
         // replacing the session. A 404 just means the session expired.
         if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
@@ -158,7 +214,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     }
     await start()
-  }, [beginWork, endWork, pushEvent, start])
+  }, [beginWork, endWork, pushEvent, start, handleUnauthorized])
+
+  const signIn = useCallback(async (token: string) => {
+    storeToken(token)
+    setNeedsSignIn(false)
+    setBootError(null)
+    try {
+      setIdentity(await api.identity())
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorized()
+        return
+      }
+    }
+    await start()
+  }, [handleUnauthorized, start])
+
+  const signOut = useCallback(() => {
+    try {
+      localStorage.removeItem('aos-session')
+    } catch {
+      /* nothing stored */
+    }
+    handleUnauthorized()
+    pushEvent('Signed out', 'info')
+  }, [handleUnauthorized, pushEvent])
 
   const startedOnce = useRef(false)
   useEffect(() => {
@@ -321,6 +402,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Store>(
     () => ({
+      authConfig,
+      needsSignIn,
+      identity,
+      signIn,
+      signOut,
       session,
       bootError,
       status,
@@ -342,6 +428,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       endSession,
     }),
     [
+      authConfig,
+      needsSignIn,
+      identity,
+      signIn,
+      signOut,
       session,
       bootError,
       status,

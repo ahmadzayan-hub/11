@@ -58,6 +58,25 @@ export interface ActivityEvent {
 
 export type ConnectionStatus = 'ready' | 'working' | 'offline' | 'error' | 'ended'
 
+export interface AuthConfig {
+  mode: 'local' | 'jwt'
+  provider?: string
+  provider_url: string
+  publishable_key: string
+  flows: string[]
+}
+
+export interface IdentityInfo {
+  mode: string
+  principal: {
+    subject: string
+    role: string
+    provider: string
+    email: string
+    permissions: string[]
+  }
+}
+
 export type RunState =
   | 'queued'
   | 'running'

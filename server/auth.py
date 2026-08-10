@@ -151,6 +151,30 @@ class JwtIdentity:
         )
 
 
+def public_auth_config(identity, env=None):
+    """Non-secret configuration the browser needs to start a sign-in.
+
+    The publishable ("anon") key is designed to be public; the JWT
+    secret, service-role key and database URL are never included."""
+    env = os.environ if env is None else env
+    if identity.mode == "local":
+        return {"mode": "local", "flows": []}
+    provider_url = (env.get("SUPABASE_URL") or "").rstrip("/")
+    publishable_key = (
+        env.get("SUPABASE_PUBLISHABLE_KEY") or env.get("SUPABASE_ANON_KEY") or ""
+    )
+    flows = []
+    if provider_url and publishable_key:
+        flows = ["password", "magic_link"]
+    return {
+        "mode": "jwt",
+        "provider": "supabase" if provider_url else "custom",
+        "provider_url": provider_url,
+        "publishable_key": publishable_key,
+        "flows": flows,
+    }
+
+
 def build_identity(env=None):
     """Select the provider from the environment, failing closed."""
     env = os.environ if env is None else env

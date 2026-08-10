@@ -102,20 +102,28 @@ export function RunsView() {
   // state is durable on the server either way.
   useEffect(() => {
     if (!run || !autoRun || !ACTIVE_STATES.includes(run.state)) return
+    const throttled = errorMessage?.startsWith('Slowing down') ?? false
     const timer = setTimeout(async () => {
       if (advancing.current) return
       advancing.current = true
       try {
         setRun(await api.advanceRun(run.id))
+        setErrorMessage(null)
       } catch (error) {
-        setErrorMessage(error instanceof ApiError ? error.message : 'Advance failed.')
-        setAutoRun(false)
+        if (error instanceof ApiError && error.status === 429) {
+          // Throttled: keep the run active and let the next tick retry
+          // instead of abandoning a half-finished pipeline.
+          setErrorMessage('Slowing down to stay within the request limit…')
+        } else {
+          setErrorMessage(error instanceof ApiError ? error.message : 'Advance failed.')
+          setAutoRun(false)
+        }
       } finally {
         advancing.current = false
       }
-    }, 350)
+    }, throttled ? 1500 : 350)
     return () => clearTimeout(timer)
-  }, [run, autoRun])
+  }, [run, autoRun, errorMessage])
 
   async function createRun(event: React.FormEvent) {
     event.preventDefault()

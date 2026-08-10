@@ -25,7 +25,8 @@ from pydantic import BaseModel, Field
 from agent import Agent
 from server.model_gateway import ModelGateway
 from server.runs import RunEngine
-from server.auth import AuthError, build_identity
+from server.auth import AuthError, build_identity, public_auth_config
+from server.rate_limit import WRITE_METHODS, RateLimiter
 from server.storage import DbMemoryBackend, PostgresStore, open_store
 from utils import load_config
 
@@ -196,6 +197,38 @@ def create_app(config_path=None, env=None):
         allow_headers=["Content-Type"],
     )
 
+    environ = os.environ if env is None else env
+    # The default must exceed the application's own legitimate write
+    # cadence: a client-stepped analytics run issues ~3 advance calls per
+    # second, so a 120/min budget (2/s) would throttle a normal run.
+    # 600/min leaves headroom while still stopping runaway loops.
+    limiter = RateLimiter(
+        limit=int(environ.get("AGENTIC_OS_RATE_LIMIT", "600")),
+        window_seconds=int(environ.get("AGENTIC_OS_RATE_WINDOW", "60")),
+    )
+
+    @app.middleware("http")
+    async def rate_limit(request: Request, call_next):
+        if request.method in WRITE_METHODS and request.url.path.startswith("/api/"):
+            # Key on the caller: the token subject when present, the
+            # client address otherwise. Tokens are never used as keys.
+            header = request.headers.get("authorization")
+            try:
+                key = identity.authenticate(header).subject
+            except AuthError:
+                key = request.client.host if request.client else "anonymous"
+            allowed, remaining, retry_after = limiter.check(key)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many requests. Please slow down."},
+                    headers={"Retry-After": str(retry_after)},
+                )
+            response = await call_next(request)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            return response
+        return await call_next(request)
+
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
         response = await call_next(request)
@@ -240,6 +273,12 @@ def create_app(config_path=None, env=None):
     def owns(principal, owner):
         """Objects belong to their creator; admins may act across owners."""
         return owner == principal.subject or principal.can("admin")
+
+    @app.get("/api/auth/config")
+    def auth_config():
+        """Public: the browser needs this before it can sign in. Contains
+        no secret — only the mode and the provider's publishable key."""
+        return public_auth_config(identity, env)
 
     @app.get("/api/identity")
     def whoami(principal=Depends(current_principal)):
