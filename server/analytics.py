@@ -20,8 +20,8 @@ import hashlib
 import io
 import statistics
 
-MAX_ROWS = 5000
-MAX_DATASET_BYTES = 250_000
+MAX_ROWS = 50_000
+MAX_DATASET_BYTES = 2_000_000
 
 
 def sample_dataset():
@@ -82,7 +82,7 @@ def planner(ctx):
 def collector(ctx):
     text = ctx.get("dataset_text") or ""
     if len(text.encode()) > MAX_DATASET_BYTES:
-        return _fail(f"Dataset exceeds the {MAX_DATASET_BYTES // 1000} KB limit.")
+        return _fail(f"Dataset exceeds the {MAX_DATASET_BYTES // 1_000_000} MB limit.")
     try:
         reader = csv.DictReader(io.StringIO(text))
         rows = [row for _, row in zip(range(MAX_ROWS + 1), reader)]

@@ -208,6 +208,38 @@ class RunEngineTestCase(unittest.TestCase):
             "updated_at": "n", "error": None, "owner": "local-owner"})
         self.assertEqual(store.get_run(run_id)["goal"], "still works")
 
+    def test_identical_datasets_are_stored_once(self):
+        csv_text = "team,sales\nA,100\nB,90\n"
+        first = self.client.post("/api/runs", json={
+            "goal": "First look", "dataset_text": csv_text,
+            "dataset_name": "sales.csv"}).json()
+        second = self.client.post("/api/runs", json={
+            "goal": "Second look", "dataset_text": csv_text,
+            "dataset_name": "sales.csv"}).json()
+        datasets = self.client.get("/api/datasets").json()["datasets"]
+        # Two runs, one stored copy of the data.
+        self.assertEqual(len(datasets), 1)
+        self.assertEqual(datasets[0]["byte_size"], len(csv_text.encode()))
+        self.assertNotEqual(first["id"], second["id"])
+
+    def test_a_run_can_reuse_a_previously_uploaded_dataset(self):
+        csv_text = "team,sales\nA,100\nB,90\n"
+        self.client.post("/api/runs", json={
+            "goal": "Original", "dataset_text": csv_text,
+            "dataset_name": "sales.csv"})
+        dataset_id = self.client.get("/api/datasets").json()["datasets"][0]["id"]
+        reused = self.client.post("/api/runs", json={
+            "goal": "Reuse the upload", "dataset_id": dataset_id}).json()
+        self.assertEqual(reused["dataset_name"], "sales.csv")
+        run = self.advance_until(reused["id"], {"awaiting_approval", "failed"})
+        self.assertEqual(run["state"], "awaiting_approval")
+        self.assertIn("total_sales | 190.0", run["report"]["content"])
+
+    def test_unknown_dataset_reference_is_rejected(self):
+        response = self.client.post("/api/runs", json={
+            "goal": "Point at nothing", "dataset_id": "does-not-exist"})
+        self.assertEqual(response.status_code, 404)
+
     def test_unknown_run_returns_404(self):
         self.assertEqual(self.client.get("/api/runs/nope").status_code, 404)
 
@@ -236,9 +268,11 @@ class RunEnginePostgresTestCase(RunEngineTestCase):
         # Fresh tables per test so runs from other tests never leak in.
         conn = psycopg2.connect(PG_TEST_URL)
         conn.autocommit = True
+        # Every table the store creates must be listed here, or rows leak
+        # between tests and produce confusing cross-test failures.
         conn.cursor().execute(
             "DROP TABLE IF EXISTS artifacts, approvals, tasks, runs, "
-            "sessions, memory_kv, vault_notes CASCADE"
+            "sessions, memory_kv, vault_notes, datasets CASCADE"
         )
         conn.close()
         super().setUp()

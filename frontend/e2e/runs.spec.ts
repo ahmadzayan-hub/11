@@ -46,3 +46,28 @@ test('an analytics run can be paused and then cancelled', async ({ page }) => {
   // A cancelled run is terminal: no further stages may run.
   await expect(page.getByRole('button', { name: 'Resume' })).toHaveCount(0)
 })
+
+test('a CSV file can be uploaded and is analyzed', async ({ page }) => {
+  await skipOnboarding(page)
+  await page.goto('/')
+  await openTab(page, /^Runs/)
+
+  await page.getByRole('button', { name: 'Upload or paste CSV' }).click()
+  await page.getByLabel('Choose a CSV file').setInputFiles({
+    name: 'quarterly-sales.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('team,quarter,sales\nA,Q1,120\nA,Q2,180\nB,Q1,60\nB,Q2,40\n'),
+  })
+  // The file is read in the browser and its shape confirmed before sending.
+  await expect(page.getByText('quarterly-sales.csv · 4 data rows')).toBeVisible()
+
+  await page.getByLabel('Goal').fill('Analyze the uploaded quarterly sales')
+  await page.getByRole('button', { name: 'Start run' }).click()
+
+  await expect(page.getByRole('region', { name: 'Approval required' })).toBeVisible({
+    timeout: 20_000,
+  })
+  // Figures come from the uploaded file, not the bundled sample.
+  await expect(page.locator('.runreport')).toContainText('total_sales | 400.0')
+  await expect(page.locator('.runreport')).toContainText('quarterly-sales.csv')
+})

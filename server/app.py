@@ -136,7 +136,8 @@ class PreferenceIn(BaseModel):
 
 class RunIn(BaseModel):
     goal: str = Field(min_length=3, max_length=500)
-    dataset_text: str | None = Field(default=None, max_length=300_000)
+    dataset_text: str | None = Field(default=None, max_length=2_100_000)
+    dataset_id: str | None = Field(default=None, max_length=32)
     dataset_name: str | None = Field(default=None, max_length=100)
 
 
@@ -495,8 +496,18 @@ def create_app(config_path=None, env=None):
     @app.post("/api/runs", status_code=201)
     def create_run(run: RunIn, principal=Depends(requires("write"))):
         with lock:
-            return engine.create_run(run.goal, run.dataset_text,
-                                     run.dataset_name, owner=principal.subject)
+            try:
+                return engine.create_run(run.goal, run.dataset_text,
+                                         run.dataset_name,
+                                         owner=principal.subject,
+                                         dataset_id=run.dataset_id)
+            except KeyError:
+                raise HTTPException(status_code=404, detail='Dataset not found.')
+
+    @app.get("/api/datasets")
+    def list_datasets(principal=Depends(requires("read"))):
+        with lock:
+            return {"datasets": store.list_datasets(principal.subject)}
 
     @app.get("/api/runs")
     def list_runs(principal=Depends(requires("read"))):

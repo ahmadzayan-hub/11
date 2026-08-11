@@ -79,6 +79,7 @@ export function RunsView() {
   const [goal, setGoal] = useState('Analyze the sample sales dataset and produce a business report')
   const [useUpload, setUseUpload] = useState(false)
   const [csvDraft, setCsvDraft] = useState('')
+  const [fileName, setFileName] = useState<string | null>(null)
   const [autoRun, setAutoRun] = useState(true)
   const [busy, setBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -133,7 +134,7 @@ export function RunsView() {
       const detail = await api.createRun(
         goal.trim(),
         useUpload && csvDraft.trim() ? csvDraft : undefined,
-        useUpload && csvDraft.trim() ? 'uploaded CSV' : undefined,
+        useUpload && csvDraft.trim() ? (fileName ?? 'pasted CSV') : undefined,
       )
       setRun(detail)
       setAutoRun(true)
@@ -210,25 +211,70 @@ export function RunsView() {
                     aria-pressed={useUpload}
                     onClick={() => setUseUpload(true)}
                   >
-                    Paste CSV
+                    Upload or paste CSV
                   </button>
                 </div>
               </div>
               {useUpload ? (
-                <div className="field">
-                  <label className="field__label" htmlFor="run-csv">
-                    CSV data (first row is the header)
-                  </label>
-                  <textarea
-                    id="run-csv"
-                    className="field__input runform__textarea"
-                    rows={6}
-                    value={csvDraft}
-                    onChange={(event) => setCsvDraft(event.target.value)}
-                    placeholder={'team,quarter,sales\nA,Q1,100\nB,Q1,90'}
-                    disabled={busy}
-                  />
-                </div>
+                <>
+                  <div className="field">
+                    <label className="field__label" htmlFor="run-file">
+                      Choose a CSV file
+                    </label>
+                    <span className="field__help">
+                      Up to 2 MB and 50,000 rows. The file is read in your browser and
+                      sent once; identical files are stored only once.
+                    </span>
+                    <input
+                      id="run-file"
+                      className="field__input"
+                      type="file"
+                      accept=".csv,text/csv"
+                      disabled={busy}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        if (!file) return
+                        if (file.size > 2_000_000) {
+                          setErrorMessage(
+                            `${file.name} is ${(file.size / 1_000_000).toFixed(1)} MB — the limit is 2 MB.`,
+                          )
+                          return
+                        }
+                        const reader = new FileReader()
+                        reader.onload = () => {
+                          setCsvDraft(String(reader.result ?? ''))
+                          setFileName(file.name)
+                          setErrorMessage(null)
+                        }
+                        reader.onerror = () => setErrorMessage(`Could not read ${file.name}.`)
+                        reader.readAsText(file)
+                      }}
+                    />
+                    {fileName ? (
+                      <p className="privacy-note">
+                        <Icon name="check" size={14} />
+                        {fileName} · {csvDraft.split('\n').filter(Boolean).length - 1} data rows
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="field">
+                    <label className="field__label" htmlFor="run-csv">
+                      …or paste CSV directly (first row is the header)
+                    </label>
+                    <textarea
+                      id="run-csv"
+                      className="field__input runform__textarea"
+                      rows={6}
+                      value={csvDraft}
+                      onChange={(event) => {
+                        setCsvDraft(event.target.value)
+                        setFileName(null)
+                      }}
+                      placeholder={'team,quarter,sales\nA,Q1,100\nB,Q1,90'}
+                      disabled={busy}
+                    />
+                  </div>
+                </>
               ) : null}
               <div className="field">
                 <button type="submit" className="btn btn--primary" disabled={busy || !goal.trim()}>

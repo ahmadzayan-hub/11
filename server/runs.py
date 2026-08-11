@@ -70,17 +70,40 @@ class RunEngine:
         self.store.update("tasks", task_id, fields)
 
     # -- API --------------------------------------------------------------
+    def store_dataset(self, text, name, owner):
+        """Content-addressed storage: identical uploads share one row."""
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        existing = self.store.find_dataset(digest, owner)
+        if existing:
+            return existing
+        dataset_id = uuid.uuid4().hex[:12]
+        self.store.insert("datasets", {
+            "id": dataset_id, "sha256": digest, "name": name,
+            "content": text, "byte_size": len(text.encode()),
+            "owner": owner, "created_at": _now()})
+        return self.store.get_dataset(dataset_id)
+
     def create_run(self, goal, dataset_text=None, dataset_name=None,
-                   owner="local-owner"):
+                   owner="local-owner", dataset_id=None):
         run_id = uuid.uuid4().hex[:12]
-        text = dataset_text or analytics.sample_dataset()
-        name = dataset_name or ("uploaded dataset" if dataset_text else "sample sales dataset")
+        if dataset_id:
+            dataset = self.store.get_dataset(dataset_id)
+            if dataset is None or dataset["owner"] != owner:
+                raise KeyError(dataset_id)
+        else:
+            text = dataset_text or analytics.sample_dataset()
+            name = dataset_name or (
+                "uploaded dataset" if dataset_text else "sample sales dataset")
+            dataset = self.store_dataset(text, name, owner)
         now = _now()
         self.store.insert("runs", {
-            "id": run_id, "goal": goal.strip(), "dataset_name": name,
-            "dataset_text": text, "state": "queued",
+            "id": run_id, "goal": goal.strip(),
+            "dataset_name": dataset["name"],
+            # dataset_text stays populated for backward compatibility with
+            # rows written before datasets were content-addressed.
+            "dataset_text": "", "state": "queued",
             "created_at": now, "updated_at": now, "error": None,
-            "owner": owner})
+            "owner": owner, "dataset_id": dataset["id"]})
         roles = [role for role, _ in analytics.PIPELINE] + ["publish"]
         for idx, role in enumerate(roles):
             self.store.insert("tasks", {
@@ -90,8 +113,16 @@ class RunEngine:
                 "updated_at": now})
         return self.get_run(run_id)
 
+    def _dataset_text(self, run):
+        dataset_id = run.get("dataset_id")
+        if dataset_id:
+            dataset = self.store.get_dataset(dataset_id)
+            if dataset is not None:
+                return dataset["content"]
+        return run.get("dataset_text") or ""
+
     def _context(self, run, tasks):
-        ctx = {"goal": run["goal"], "dataset_text": run["dataset_text"],
+        ctx = {"goal": run["goal"], "dataset_text": self._dataset_text(run),
                "dataset_name": run["dataset_name"], "run_id": run["id"]}
         for task in tasks:
             if task["state"] == "succeeded" and task["result_json"]:

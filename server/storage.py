@@ -42,6 +42,12 @@ SCHEMA_STATEMENTS = [
     """CREATE TABLE IF NOT EXISTS vault_notes (
       path TEXT PRIMARY KEY, run_id TEXT NOT NULL,
       content TEXT NOT NULL, created_at TEXT NOT NULL)""",
+    # Datasets are content-addressed: uploading the same file twice
+    # stores one row, and runs reference it instead of duplicating it.
+    """CREATE TABLE IF NOT EXISTS datasets (
+      id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, name TEXT NOT NULL,
+      content TEXT NOT NULL, byte_size INTEGER NOT NULL,
+      owner TEXT NOT NULL, created_at TEXT NOT NULL)""",
 ]
 
 
@@ -84,6 +90,10 @@ class SqlStore:
                 # local owner, matching pre-auth behavior.
                 self._exec(
                     f"UPDATE {table} SET owner = 'local-owner' WHERE owner IS NULL")
+        try:
+            self._exec("ALTER TABLE runs ADD COLUMN dataset_id TEXT")
+        except Exception:
+            self._rollback()
 
     def _rollback(self):
         try:
@@ -198,6 +208,22 @@ class SqlStore:
     def get_note(self, path):
         rows = self._exec("SELECT * FROM vault_notes WHERE path = ?", (path,))
         return rows[0] if rows else None
+
+    # -- datasets ---------------------------------------------------------
+    def find_dataset(self, sha256, owner):
+        rows = self._exec(
+            "SELECT * FROM datasets WHERE sha256 = ? AND owner = ? LIMIT 1",
+            (sha256, owner))
+        return rows[0] if rows else None
+
+    def get_dataset(self, dataset_id):
+        rows = self._exec("SELECT * FROM datasets WHERE id = ?", (dataset_id,))
+        return rows[0] if rows else None
+
+    def list_datasets(self, owner):
+        return self._exec(
+            "SELECT id, sha256, name, byte_size, created_at FROM datasets "
+            "WHERE owner = ? ORDER BY created_at DESC LIMIT 50", (owner,))
 
 
 class DbMemoryBackend:

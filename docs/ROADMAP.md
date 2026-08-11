@@ -37,8 +37,9 @@ facts reach the narrator.
    Postgres 16; Supabase project `agentic-os` provisioned, RLS
    deny-by-default; sessions, memory, and published vault notes all moved
    behind the store, so the backend requires no local disk (ADR 0001 and
-   its amendment). **Remaining:** object storage for large datasets;
-   backups and restore drills (RPO/RTO).
+   its amendment), plus content-addressed dataset storage (ADR 0004).
+   **Remaining:** backups and restore drills (RPO/RTO); external object
+   storage only becomes worthwhile above tens of megabytes.
 3. Durable workflow execution: evaluate **Vercel Workflows for Python**
    directly against the run-engine contract (pause/resume/recovery)
    before committing to the abstraction; otherwise database-backed jobs
@@ -46,6 +47,11 @@ facts reach the narrator.
 4. Scalable analytics data plane: DuckDB or Polars for bounded local
    analysis, resumable uploads, dataset size/memory limits, partitioning
    and sampling, restricted-data egress controls.
+   **Done:** content-addressed dataset storage (identical uploads stored
+   once), file upload with client-side validation, dataset reuse by id,
+   limits raised to 2 MB / 50,000 rows (ADR 0004). **Remaining:**
+   DuckDB/Polars for larger-than-memory analysis, resumable uploads,
+   partitioning and sampling.
 5. Verified Vercel deployment against the hosted API; preview
    deployments per PR; rollback documented.
    **Done:** full-stack Vercel configuration (`api/index.py` ASGI entry

@@ -54,5 +54,8 @@ required local files. Both behaviors are covered by tests
     folder; reading/sync/retrieval from a vault is not implemented.
 11. Interface language is English; the `language` preference is recorded
     but does not translate the UI. No RTL support yet.
-12. Dataset ingestion is CSV (pasted text, ≤250 KB / ≤5000 rows); XLSX,
-    JSON, Parquet, databases, and file upload are not implemented.
+12. Dataset ingestion is CSV only — uploaded as a file or pasted, up to
+    2 MB and 50,000 rows, held in the database rather than object
+    storage. XLSX, JSON, Parquet, and database connectors are not
+    implemented, and analysis is in-memory (no DuckDB/Polars), so
+    larger-than-memory datasets are out of scope.
