@@ -41,10 +41,12 @@ required local files. Both behaviors are covered by tests
 6. Runs advance while the Runs view is open (client-stepped execution);
    there is no background worker. A paused/interrupted run resumes from
    its durable state at any time.
-7. Vercel hosts the static frontend only; the backend needs a host that
-   can hold TCP connections to PostgreSQL (see
-   docs/VERCEL_DEPLOYMENT.md). No deployment was made from the
-   implementation environment.
+7. The repository is configured to deploy to Vercel as a full-stack
+   project (static frontend + Python function). **No deployment has been
+   performed or verified** — importing the repo and setting the
+   credentials are owner steps. Without `DATABASE_URL` a deployment
+   falls back to ephemeral per-instance storage. See
+   docs/VERCEL_DEPLOYMENT.md.
 9. Android support is a verified installable PWA; a native Capacitor
    project is documented but not shipped (no Android SDK available to
    build or test one honestly).

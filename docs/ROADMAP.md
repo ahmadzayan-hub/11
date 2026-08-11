@@ -46,8 +46,14 @@ facts reach the narrator.
 4. Scalable analytics data plane: DuckDB or Polars for bounded local
    analysis, resumable uploads, dataset size/memory limits, partitioning
    and sampling, restricted-data egress controls.
-5. Verified Vercel deployment (frontend) against the hosted API; preview
+5. Verified Vercel deployment against the hosted API; preview
    deployments per PR; rollback documented.
+   **Done:** full-stack Vercel configuration (`api/index.py` ASGI entry
+   + `vercel.json`), serverless hardening (Postgres reconnect,
+   read-only-filesystem fallback), and a documented deploy/rollback
+   procedure. **Remaining:** the import itself and the environment
+   variables, which need the owner's credentials — no deployment has
+   been made or claimed (see docs/VERCEL_DEPLOYMENT.md).
 6. Tenant quotas, usage budgets, and cost tracking (FinOps foundation).
 
 ## Tier 3 — Enterprise Release (scoped, not started)

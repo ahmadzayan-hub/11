@@ -226,10 +226,24 @@ class SQLiteStore(SqlStore):
     placeholder = "?"
 
     def __init__(self, path):
+        import os
         import sqlite3
+        import tempfile
         from pathlib import Path
 
-        Path(str(path)).parent.mkdir(parents=True, exist_ok=True)
+        path = Path(str(path))
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # Read-only deployment (e.g. a serverless bundle): fall back to
+            # the writable temp directory. State is then per-instance and
+            # ephemeral — configure DATABASE_URL for durable hosting.
+            path = Path(tempfile.gettempdir()) / "agentic-os" / path.name
+            path.parent.mkdir(parents=True, exist_ok=True)
+        if not os.access(path.parent, os.W_OK):
+            path = Path(tempfile.gettempdir()) / "agentic-os" / path.name
+            path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = path
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._create_schema()
@@ -244,9 +258,28 @@ class PostgresStore(SqlStore):
     def __init__(self, database_url):
         import psycopg2  # lazy: only hosted mode needs the driver
 
-        self._conn = psycopg2.connect(database_url)
-        self._conn.autocommit = True
+        self._psycopg2 = psycopg2
+        self._database_url = database_url
+        self._conn = self._connect()
         self._create_schema()
+
+    def _connect(self):
+        conn = self._psycopg2.connect(self._database_url, connect_timeout=10)
+        conn.autocommit = True
+        return conn
+
+    def _exec(self, sql, params=()):
+        try:
+            return super()._exec(sql, params)
+        except self._psycopg2.OperationalError:
+            # Serverless invocations and poolers drop idle connections;
+            # reconnect once rather than failing a user's request.
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = self._connect()
+            return super()._exec(sql, params)
 
     def _commit(self):
         pass  # autocommit

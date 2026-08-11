@@ -1,54 +1,82 @@
 # Vercel Deployment
 
-## What ships today
+The repository is deploy-ready as a **full-stack Vercel project**: the
+React frontend as static assets and the FastAPI backend as a Python
+serverless function.
 
-`vercel.json` builds and serves the **frontend** (static SPA + PWA) with
-SPA rewrites and security headers:
+## Why this is possible now
 
-```bash
-npm i -g vercel@latest   # or pin in CI
-vercel pull && vercel build && vercel deploy --prebuilt
-```
+The original blocker was state, not the platform. The backend used to
+require local disk (SQLite file, `data/memory.json`, vault folder).
+Since ADR 0001 and its amendment, all durable state lives behind the
+storage adapter, so the backend can run on an ephemeral filesystem.
 
-## The honest constraint
+## What is configured
 
-The backend is FastAPI with **stateful, durable local persistence**
-(SQLite in WAL mode, a shared memory file, and vault file writes).
-Vercel functions are stateless with an ephemeral filesystem, so deploying
-this backend to Vercel functions would silently lose runs, memory, and
-published reports — a data-loss defect, not a deployment.
+| File | Purpose |
+| --- | --- |
+| `api/index.py` | ASGI entry point Vercel serves for `/api/*`; adds the repo root to `sys.path` and re-exports the unchanged FastAPI `app` |
+| `vercel.json` | Builds the frontend, routes `/api/*` to the function, rewrites everything else to the SPA, sets security headers, `no-store` on the API and immutable caching on hashed assets |
+| `requirements.txt` | Function dependencies (FastAPI, psycopg2, PyJWT) |
 
-A frontend-only Vercel deployment boots to the app's honest offline/boot
-error state ("Cannot reach the Agentic OS server") unless an API origin
-is provided.
+Serverless hardening already in place:
 
-## Supported production path
+- `PostgresStore` reconnects once on `OperationalError`, so a pooler or
+  cold start dropping an idle connection does not fail a user request.
+- `SQLiteStore` relocates to a writable temp directory when its target
+  directory is read-only, instead of crashing at import (tested).
 
-1. Host the backend on a server platform (Fly.io, Railway, Render, a VM):
-   `uvicorn server.app:app --host 0.0.0.0`.
-2. Set `DATABASE_URL` to the provisioned Supabase PostgreSQL (project
-   `agentic-os`, session-pooler string from the dashboard — see
-   `.env.example` and `docs/adr/0001-database.md`). Runs, tasks,
-   approvals, and artifacts then persist in hosted Postgres, verified by
-   the CI Postgres suite.
-3. Set the API origin at frontend build time: `VITE_API_BASE=https://api.example.com`.
-4. Add the Vercel domain to `AGENTIC_OS_ALLOWED_ORIGINS` on the backend.
-5. Keep `GROQ_API_KEY` and `DATABASE_URL` on the backend host only.
-6. Deploy the frontend to Vercel with the config in this repo.
+## Deploy it
 
-Remaining host-local state (why a persistent disk is still recommended):
-sessions/transcripts (in-memory), `data/memory.json`, and vault files.
-Moving those to the hosted database is the next roadmap step before a
-fully stateless backend.
+1. In Vercel, **Add New → Project → import `ahmadzayan-hub/11`** and pick
+   the `main` branch. `vercel.json` supplies every build setting.
+2. Add environment variables (Project → Settings → Environment
+   Variables) — all server-side, never exposed to the browser:
 
-Migrating persistence to PostgreSQL + object storage (per the V2 master
-prompt) is the prerequisite for an all-Vercel architecture; the
-`RunEngine` interface is deliberately narrow to make that adapter swap
-tractable.
+   | Variable | Needed for |
+   | --- | --- |
+   | `DATABASE_URL` | **Durable state.** Supabase → Connect → *Transaction pooler* (port 6543, built for serverless), with your database password |
+   | `AGENTIC_OS_ENV=production` | Fail closed unless auth is configured |
+   | `SUPABASE_JWT_SECRET` *or* `AGENTIC_OS_JWKS_URL` | Token verification |
+   | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Browser sign-in (publishable) |
+   | `GROQ_API_KEY` | Optional model-phrased summaries |
 
-## Deployment status
+3. Redeploy after setting the variables and check `/api/health` — it
+   reports the model provider without revealing any secret.
 
-No Vercel deployment was performed from this environment: deploying the
-frontend alone without a reachable backend would publish a non-functional
-app, and backend credentials/hosting were not provisioned. This is the
-precise blocker, reported per the master prompt rather than papered over.
+The Supabase schema is already applied (project `agentic-os`,
+migrations `agentic_os_run_engine` and
+`agentic_os_sessions_memory_vault`, RLS deny-by-default).
+
+## Without `DATABASE_URL`
+
+The deployment still runs, but the store falls back to SQLite in the
+function's temp directory: state survives only while an instance stays
+warm and is lost on cold start. Acceptable for a first look, **not** for
+real use. Set `DATABASE_URL` before treating the deployment as usable.
+
+## Verification status — read this before claiming it works
+
+No deployment has been performed from the implementation environment.
+Two honest reasons:
+
+1. **Credentials.** `DATABASE_URL` requires the Supabase database
+   password and the JWT secret, which only the project owner holds.
+   Setting them in the Vercel dashboard is a deliberate human step.
+2. **Tooling limits.** The available deploy tool uploads an inline file
+   tree; the built frontend bundle alone is ~280 KB, beyond what that
+   interface can carry. Git import is the correct path anyway — it gives
+   preview deployments per pull request.
+
+So: the configuration is written and locally verified (the ASGI entry
+imports and exposes all 22 API routes; the read-only fallback is
+covered by a test), but **the deployed URL itself is unverified**. After
+importing the project, confirm `/api/health`, sign-in, and one analytics
+run before relying on it.
+
+## Rollback
+
+Vercel keeps every deployment. Project → Deployments → select the last
+known-good build → **Promote to Production**. Database migrations are
+additive (`ADD COLUMN` / `CREATE TABLE IF NOT EXISTS`), so an older
+build keeps working against a newer schema.

@@ -183,6 +183,31 @@ class RunEngineTestCase(unittest.TestCase):
         self.assertEqual(run["state"], "awaiting_approval")
         self.assertIn("total_sales | 400.0", run["report"]["content"])
 
+    def test_storage_falls_back_when_the_target_directory_is_unwritable(self):
+        """Serverless bundles ship a read-only filesystem; the store must
+        relocate to a writable directory instead of crashing at boot."""
+        import tempfile
+        import uuid
+
+        from server.storage import SQLiteStore
+
+        blocker = Path(tempfile.mkdtemp()) / "not-a-dir"
+        blocker.write_text("x", encoding="utf-8")
+        # The fallback location is shared and survives between runs, so
+        # this uses a unique file and row id to stay hermetic.
+        name = f"fallback-{uuid.uuid4().hex[:8]}.db"
+        requested = blocker / "nested" / name
+        store = SQLiteStore(requested)
+        self.addCleanup(lambda: store.path.unlink(missing_ok=True))
+        self.assertNotEqual(store.path, requested)
+        self.assertTrue(str(store.path).startswith(tempfile.gettempdir()))
+        run_id = uuid.uuid4().hex[:12]
+        store.insert("runs", {
+            "id": run_id, "goal": "still works", "dataset_name": "d",
+            "dataset_text": "t", "state": "queued", "created_at": "n",
+            "updated_at": "n", "error": None, "owner": "local-owner"})
+        self.assertEqual(store.get_run(run_id)["goal"], "still works")
+
     def test_unknown_run_returns_404(self):
         self.assertEqual(self.client.get("/api/runs/nope").status_code, 404)
 
