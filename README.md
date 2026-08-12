@@ -124,7 +124,7 @@ and returns fresh state snapshots.
 - Python 3.10+ (CLI alone needs only the standard library)
 - Node.js 20.19+ or 22+ and npm (web interface only)
 - No API keys, no external services, no credentials required. Optional
-  narration by a local Ollama model (`OLLAMA_MODEL`, no key), Claude
+  narration by a local Ollama model (`OLLAMA_MODEL=qwen3:4b`, no key), Claude
   (`ANTHROPIC_API_KEY`), or Groq (`GROQ_API_KEY`) — all server-side, see
   `.env.example`
 
@@ -167,7 +167,7 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, runs, analytics, auth, backups, worker (217 tests)
+# Python: agent, utils, API, runs, analytics, auth, backups, worker (220 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -183,7 +183,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 217 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 220 Python tests, 23 frontend unit
 tests, and 36 end-to-end checks (35 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:

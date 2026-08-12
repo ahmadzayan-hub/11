@@ -105,8 +105,8 @@ as a 404 — a run that appeared to vanish.
 
 ## Evidence
 
-- 217 Python tests (both dialects, suite run twice), including 18 in
-  `tests/test_analytics.py` and 10 in `tests/test_model_gateway.py`.
+- 220 Python tests (both dialects, suite run twice), including 18 in
+  `tests/test_analytics.py` and 13 in `tests/test_model_gateway.py`.
 - Every headline figure was recomputed independently — total, period
   change, forecast, backtest error, and the segment decomposition — and
   matched to the cent.
@@ -116,4 +116,12 @@ as a 404 — a run that appeared to vanish.
 - The Ollama and Anthropic paths were exercised **over a real socket**
   against local servers speaking each wire protocol: one request, correct
   headers, only verified facts in the body, and the dataset absent from
-  it. No live provider call has been made from this environment.
+  it. No live provider call has been made from this environment — its
+  egress policy blocks the model hosts.
+- Reasoning models are handled explicitly. `qwen3:4b` and its relatives
+  answer with a `<think>` scratchpad before the summary; that block is
+  stripped, a reply truncated mid-thought falls back to the deterministic
+  narrator rather than printing reasoning as a summary, and local models
+  get a larger token budget because thinking would otherwise consume it
+  all. Verified end to end against a server that replies the way qwen3
+  does: the scratchpad appears nowhere in the 12,937-character report.

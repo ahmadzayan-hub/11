@@ -93,6 +93,34 @@ class ProviderCallTestCase(unittest.TestCase):
         self.assertEqual(user, "Goal: Analyze sales\nVerified facts:\n"
                                "- Total revenue is 3,583,440.")
 
+    def test_a_reasoning_model_s_scratchpad_never_reaches_the_report(self):
+        """qwen3, deepseek-r1 and friends think out loud in <think> tags.
+        That is not an executive summary."""
+        gateway = self.gateway_with(
+            {"OLLAMA_MODEL": "qwen3:4b"},
+            {"message": {"content":
+                         "<think>The user wants a summary. Revenue rose 45%, so I "
+                         "should lead with that. Let me check the numbers again…"
+                         "</think>\n\nRevenue is up sharply, led by the North region."}})
+        result = gateway.narrate("goal", ["Revenue rose 45%."])
+        self.assertEqual(result["text"], "Revenue is up sharply, led by the North region.")
+        self.assertNotIn("<think>", result["text"])
+        self.assertNotIn("check the numbers again", result["text"])
+
+    def test_a_reply_cut_off_mid_thought_falls_back_rather_than_leaking(self):
+        gateway = self.gateway_with(
+            {"OLLAMA_MODEL": "qwen3:4b"},
+            {"message": {"content": "<think>Let me work through this. First the total"}})
+        result = gateway.narrate("goal", ["Revenue rose 45%."])
+        self.assertEqual(result["source"], "deterministic")
+        self.assertNotIn("<think>", result["text"])
+
+    def test_local_models_get_a_bigger_token_budget_to_think_with(self):
+        gateway = self.gateway_with({"OLLAMA_MODEL": "qwen3:4b"},
+                                    {"message": {"content": "ok"}})
+        gateway.narrate("goal", ["A fact."])
+        self.assertEqual(self.sent["payload"]["options"]["num_predict"], 600)
+
     def test_a_provider_failure_degrades_to_deterministic_and_says_so(self):
         for response in (None, {}, {"content": []}, {"message": {"content": "   "}}):
             with self.subTest(response=response):

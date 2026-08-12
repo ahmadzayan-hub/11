@@ -21,6 +21,7 @@ narrator, which is reported honestly as the source in the report itself.
 """
 
 import os
+import re
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -31,6 +32,14 @@ DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.1"
 TIMEOUT_SECONDS = 12
 MAX_OUTPUT_TOKENS = 220
+# Local models get a larger budget than the metered ones: reasoning models
+# (qwen3, deepseek-r1, …) spend tokens thinking before they answer, and a
+# 220-token cap would be exhausted by the scratchpad, leaving no summary.
+LOCAL_OUTPUT_TOKENS = 600
+
+# Reasoning models wrap their scratchpad in <think> tags. That is working
+# out loud, not an executive summary: it never belongs in a report.
+THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 # The house style the narrator must follow. A finding that cannot be
 # communicated cannot drive action, so plain language is part of the
@@ -113,13 +122,21 @@ class ModelGateway:
 
     @staticmethod
     def _clean(text):
-        return text.strip() if isinstance(text, str) and text.strip() else None
+        if not isinstance(text, str):
+            return None
+        text = THINK_BLOCK.sub("", text)
+        if "<think>" in text.lower():
+            # An unclosed block means the reply was cut off mid-thought, so
+            # everything present is scratchpad. Degrade to the deterministic
+            # narrator rather than printing a model's reasoning as a summary.
+            return None
+        return text.strip() or None
 
     def _call_ollama(self, goal, facts):
         body = self._post(
             self.ollama_host.rstrip("/") + "/api/chat", {},
             {"model": self.ollama_model, "stream": False,
-             "options": {"num_predict": MAX_OUTPUT_TOKENS},
+             "options": {"num_predict": LOCAL_OUTPUT_TOKENS},
              "messages": [{"role": "system", "content": SYSTEM_PROMPT},
                           {"role": "user", "content": self._prompt(goal, facts)}]})
         try:

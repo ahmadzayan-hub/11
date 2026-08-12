@@ -27,9 +27,14 @@ placeholder controls — absent capabilities have no UI.
    - No statistical hypothesis testing is performed anywhere.
 3. The optional narrator (Ollama, Anthropic, or Groq) only phrases
    already-verified facts and never receives the dataset. The wire
-   contract for each provider is tested against a local HTTP server, but
-   no live provider call has been made from this environment, so
-   first-use against a real endpoint is unconfirmed. Any failure falls
+   contract for each provider is tested against a local HTTP server —
+   including a reasoning model's `<think>` scratchpad, which is stripped
+   and never reaches a report — but **no live provider call has been made
+   from this environment** (its egress policy blocks `ollama.com`,
+   `registry.ollama.ai`, and the model APIs), so first use against a real
+   endpoint is unconfirmed. A local Ollama must be reachable from the
+   machine running the server: a model on a laptop is invisible to a
+   hosted deployment. Any failure falls
    back to the deterministic narrator, and the report always names which
    one wrote the summary.
 4. There is no autonomous "improve forever" loop. Runs are bounded;
