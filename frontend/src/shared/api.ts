@@ -155,6 +155,8 @@ export const api = {
   listRuns: () => request<{ runs: RunSummary[] }>('/api/runs'),
   getRun: (id: string) => request<RunDetail>(`/api/runs/${id}`),
   advanceRun: (id: string) => request<RunDetail>(`/api/runs/${id}/advance`, { method: 'POST' }),
+  pauseRun: (id: string) => request<RunDetail>(`/api/runs/${id}/pause`, { method: 'POST' }),
+  resumeRun: (id: string) => request<RunDetail>(`/api/runs/${id}/resume`, { method: 'POST' }),
   cancelRun: (id: string) => request<RunDetail>(`/api/runs/${id}/cancel`, { method: 'POST' }),
   decideApproval: (id: string, approvalId: string, decision: 'approve' | 'reject') =>
     request<RunDetail>(`/api/runs/${id}/approvals/${approvalId}`, {

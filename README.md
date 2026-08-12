@@ -87,11 +87,11 @@ and returns fresh state snapshots.
 ├── utils.py               # Config loading, JSON persistence, validation
 ├── server/                # FastAPI adapter, run engine, storage, auth,
 │                          # backup/restore
-├── scripts/               # backup.py · restore.py (operator commands)
+├── scripts/               # backup.py · restore.py · worker.py
 ├── config.json            # User-editable settings
 ├── data/memory.json       # Persistent memory (starts empty)
 ├── tests/                 # Python unittest suite (agent, utils, API,
-│                          # runs, auth, backup drill)
+│                          # runs, auth, backups, worker)
 ├── frontend/
 │   ├── src/
 │   │   ├── app/           # Shell, store, theme
@@ -154,7 +154,7 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, run engine, auth, backup drill (156 tests)
+# Python: agent, utils, API, run engine, auth, backups, worker (189 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -170,11 +170,28 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 156 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 189 Python tests, 23 frontend unit
 tests, and 36 end-to-end checks (35 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:
 `PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium npx playwright test`.
+
+## Background worker (optional)
+
+Runs advance while the Runs view is open. To advance them with no browser
+open, run a worker:
+
+```bash
+python scripts/worker.py          # poll for work until Ctrl-C
+python scripts/worker.py --once   # advance one run, then exit
+```
+
+The worker claims a run with a database lease, advances it one task at a
+time, and releases the lease when the run needs a human or ends. It never
+decides an approval — it stops at the gate like any other caller. A
+worker that crashes stops renewing its lease, and the next worker (or an
+open browser) picks the run up from its durable state. Details and
+trade-offs: `docs/adr/0006-durable-execution.md`.
 
 ## Backup and restore
 

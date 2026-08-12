@@ -51,6 +51,14 @@ facts reach the narrator.
    directly against the run-engine contract (pause/resume/recovery)
    before committing to the abstraction; otherwise database-backed jobs
    with leases and heartbeats.
+   **Done:** evaluated and declined in favour of database leases with
+   heartbeats — a background worker advances runs with no browser open,
+   crash recovery is lease expiry rather than a cleanup path, clients and
+   workers can never execute the same task, and pause became durable
+   server-side state so the control means the same thing in both modes
+   (ADR 0006). **Remaining:** nothing starts the worker automatically,
+   and Vercel's serverless runtime cannot host it, so hosted deployments
+   there stay client-stepped.
 4. Scalable analytics data plane: DuckDB or Polars for bounded local
    analysis, resumable uploads, dataset size/memory limits, partitioning
    and sampling, restricted-data egress controls.

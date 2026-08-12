@@ -20,7 +20,7 @@ User memory (`data/memory.json`), run data and reports (`data/agentic.db`,
 | Sensitive data caching | `Cache-Control: no-store` on all `/api/*` responses | `tests/test_api.py` |
 | Clickjacking / MIME sniffing | `X-Frame-Options: DENY`, `nosniff`, referrer & permissions policies (server + Vercel headers) | header test |
 | Secret exposure | No secrets in the repo; provider keys are env-only, never logged or sent to the browser; `.env.example` has placeholders only | repo scan, code review |
-| Unbounded loops / cost | Runs have a fixed bounded stage list; datasets capped (250 KB / 5000 rows); model calls capped (1 per run, 220 tokens, 12 s timeout) | code + tests |
+| Unbounded loops / cost | Runs have a fixed bounded stage list; datasets capped (2 MB / 50,000 rows); model calls capped (1 per run, 220 tokens, 12 s timeout) | code + tests |
 | Stack-trace disclosure | Global exception handler returns a generic message | `server/app.py` |
 | Privacy in git history | Runtime data (`memory.json`, `agentic.db`, `vault/`) untracked and ignored; note: `data/memory.json` existed in history as `{}` only — no personal data was ever committed | git log |
 

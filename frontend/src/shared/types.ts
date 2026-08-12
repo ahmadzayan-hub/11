@@ -125,6 +125,8 @@ export interface RunDetail {
   error: string | null
   created_at: string
   updated_at: string
+  /** Server-side pause: honoured by clients and background workers alike. */
+  paused: boolean
   tasks: RunTask[]
   approvals: RunApproval[]
   charts: ChartSpec[]

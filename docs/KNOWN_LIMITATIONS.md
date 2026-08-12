@@ -38,9 +38,14 @@ required local files. Both behaviors are covered by tests
    limiter is per process, so multi-instance deployments need a shared
    store. There is no admin UI for granting roles — roles come from
    token claims or `AGENTIC_OS_DEFAULT_ROLE`.
-6. Runs advance while the Runs view is open (client-stepped execution);
-   there is no background worker. A paused/interrupted run resumes from
-   its durable state at any time.
+6. Execution is client-stepped by default: runs advance while the Runs
+   view is open. A background worker (`python scripts/worker.py`) can
+   advance them server-side with no browser, using database leases with
+   heartbeats (ADR 0006), but **nothing starts it automatically** and
+   Vercel's serverless runtime has no process to run it in — hosted
+   deployments there keep the client-stepped path. One worker advances
+   one run at a time; parallelism means running more workers. A
+   paused or interrupted run resumes from its durable state either way.
 7. The repository is configured to deploy to Vercel as a full-stack
    project (static frontend + Python function). **No deployment has been
    performed or verified** — importing the repo and setting the

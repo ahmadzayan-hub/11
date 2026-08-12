@@ -86,13 +86,20 @@ switch.
 ### Analytics runs
 
 Open **Runs** to turn a goal into a governed analytics pipeline. Choose
-the bundled sample sales dataset or paste your own CSV (header row first,
-up to 250 KB / 5000 rows), then start the run. Ten specialist agents
-execute in order — planning, ingestion, profiling, cleaning, preparation,
-analysis, visualization, business insights, independent validation, and
-reporting — and you can **Pause**, **Resume**, or **Cancel** at any time.
+the bundled sample sales dataset, upload a CSV file, or paste one (header
+row first, up to 2 MB / 50,000 rows), then start the run. Uploading the
+same file twice stores it once, and a previous upload can be re-analysed
+without sending it again. Ten specialist agents execute in order —
+planning, ingestion, profiling, cleaning, preparation, analysis,
+visualization, business insights, independent validation, and reporting —
+and you can **Pause**, **Resume**, or **Cancel** at any time. Pausing is
+recorded on the server, so it holds across a refresh and applies to a
+background worker too, not just the tab you clicked in.
+
 A closed or crashed browser loses nothing: runs are stored durably and
-resume from where they stopped.
+resume from where they stopped. By default a run advances while the Runs
+view is open; if the person running the server has started a background
+worker (`python scripts/worker.py`), runs continue with no browser open.
 
 The finished report shows charts, key metrics, and a findings table where
 every claim lists its evidence. Publishing the report into the local

@@ -96,6 +96,15 @@ class SqlStore:
         self._commit()
         return rows
 
+    def _exec_rowcount(self, sql, params=()):
+        """Like _exec, but reports how many rows the statement changed —
+        which is how a lease claim knows whether it won the race."""
+        cursor = self._conn.cursor()
+        cursor.execute(sql.replace("?", self.placeholder), params)
+        count = cursor.rowcount
+        self._commit()
+        return count
+
     def _create_schema(self):
         for statement in SCHEMA_STATEMENTS:
             self._exec(statement)
@@ -116,8 +125,14 @@ class SqlStore:
                 # local owner, matching pre-auth behavior.
                 self._exec(
                     f"UPDATE {table} SET owner = 'local-owner' WHERE owner IS NULL")
+        for column in ("dataset_id", "lease_owner", "lease_expires_at"):
+            try:
+                self._exec(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
+            except Exception:
+                self._rollback()
         try:
-            self._exec("ALTER TABLE runs ADD COLUMN dataset_id TEXT")
+            # NULL means "never paused", which reads as not paused.
+            self._exec("ALTER TABLE runs ADD COLUMN paused INTEGER")
         except Exception:
             self._rollback()
 
@@ -179,6 +194,44 @@ class SqlStore:
             "SELECT * FROM approvals WHERE id = ? AND run_id = ?",
             (approval_id, run_id))
         return rows[0] if rows else None
+
+    # -- worker leases ----------------------------------------------------
+    # A lease is a row-level claim with an expiry. A worker that crashes
+    # stops renewing, the expiry passes, and another worker picks the run
+    # up — no lock to clean up, no heartbeat table to keep consistent.
+    def claim_run(self, worker_id, now, expires_at):
+        """Take the lease on one runnable run. Returns its id, or None."""
+        candidates = self._exec(
+            "SELECT id FROM runs WHERE state IN ('queued', 'running') "
+            "AND (paused IS NULL OR paused = 0) "
+            "AND (lease_owner IS NULL OR lease_expires_at < ?) "
+            "ORDER BY created_at LIMIT 5", (now,))
+        for row in candidates:
+            # The guard repeats inside the UPDATE, so two workers that
+            # both selected this candidate cannot both win: the loser
+            # changes zero rows and tries the next one. The SELECT alone
+            # would not be enough — it is a read, not a claim.
+            if self._exec_rowcount(
+                    "UPDATE runs SET lease_owner = ?, lease_expires_at = ? "
+                    "WHERE id = ? AND state IN ('queued', 'running') "
+                    "AND (paused IS NULL OR paused = 0) "
+                    "AND (lease_owner IS NULL OR lease_expires_at < ?)",
+                    (worker_id, expires_at, row["id"], now)):
+                return row["id"]
+        return None
+
+    def renew_lease(self, run_id, worker_id, expires_at):
+        """Heartbeat. False means the lease was lost and must not be used."""
+        return self._exec_rowcount(
+            "UPDATE runs SET lease_expires_at = ? "
+            "WHERE id = ? AND lease_owner = ?",
+            (expires_at, run_id, worker_id)) == 1
+
+    def release_lease(self, run_id, worker_id):
+        """Release only our own lease, never a successor's."""
+        self._exec(
+            "UPDATE runs SET lease_owner = NULL, lease_expires_at = NULL "
+            "WHERE id = ? AND lease_owner = ?", (run_id, worker_id))
 
     # -- sessions ---------------------------------------------------------
     def get_session(self, session_id):

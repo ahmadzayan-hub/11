@@ -43,6 +43,16 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _stamp(moment):
+    """Lease timestamps are compared as text by the database, so they use
+    a fixed width — `isoformat()` drops the fraction on a whole second."""
+    return moment.strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
+
+
 class RunEngine:
     def __init__(self, store, vault_dir, gateway):
         self.store = store
@@ -131,9 +141,21 @@ class RunEngine:
                 ctx[task["role"] + "_result"] = result
         return ctx
 
-    def advance(self, run_id):
-        """Execute exactly one bounded task; every transition is durable."""
+    def advance(self, run_id, lease_owner=None):
+        """Execute exactly one bounded task; every transition is durable.
+
+        If a background worker holds a live lease on this run, a client's
+        advance is a no-op that simply returns the current state: the two
+        never execute the same task. When the worker dies its lease
+        expires and clients resume stepping the run themselves.
+        """
         run = self._row(run_id)
+        if run.get("paused"):
+            raise ValueError("Run is paused — resume it before advancing.")
+        holder = run.get("lease_owner")
+        if (holder and holder != lease_owner
+                and (run.get("lease_expires_at") or "") > _stamp(_utcnow())):
+            return self.get_run(run_id)
         if run["state"] in ("completed", "partially_completed", "failed", "cancelled"):
             raise ValueError(f"Run is {run['state']} and cannot advance.")
         if run["state"] == "awaiting_approval":
@@ -267,6 +289,16 @@ class RunEngine:
                                log_note.read_text(encoding="utf-8"), now)
         return note
 
+    def set_paused(self, run_id, paused):
+        """Pause is durable, not a client-side toggle: a background worker
+        must honour it too, or the button would stop meaning anything."""
+        run = self._row(run_id)
+        if run["state"] not in ("queued", "running"):
+            raise ValueError(f"Run is {run['state']} and cannot be paused.")
+        self.store.update("runs", run_id,
+                          {"paused": 1 if paused else 0, "updated_at": _now()})
+        return self.get_run(run_id)
+
     def cancel(self, run_id):
         self._set_run_state(run_id, "cancelled")
         for t in self.store.get_tasks(run_id):
@@ -318,4 +350,5 @@ class RunEngine:
                 "dataset_name": run["dataset_name"], "state": run["state"],
                 "error": run["error"], "created_at": run["created_at"],
                 "updated_at": run["updated_at"], "tasks": tasks,
+                "paused": bool(run.get("paused")),
                 "approvals": approvals, "charts": charts, "report": report}

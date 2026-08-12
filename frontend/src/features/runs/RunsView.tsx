@@ -80,7 +80,10 @@ export function RunsView() {
   const [useUpload, setUseUpload] = useState(false)
   const [csvDraft, setCsvDraft] = useState('')
   const [fileName, setFileName] = useState<string | null>(null)
-  const [autoRun, setAutoRun] = useState(true)
+  // Stepping stops for two different reasons: the user paused the run
+  // (durable, server-side, also obeyed by a background worker) or a
+  // request failed (local to this tab, cleared on the next action).
+  const [stoppedByError, setStoppedByError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const advancing = useRef(false)
@@ -102,7 +105,7 @@ export function RunsView() {
   // active and auto-run is on. Pausing simply stops advancing — the run
   // state is durable on the server either way.
   useEffect(() => {
-    if (!run || !autoRun || !ACTIVE_STATES.includes(run.state)) return
+    if (!run || run.paused || stoppedByError || !ACTIVE_STATES.includes(run.state)) return
     const throttled = errorMessage?.startsWith('Slowing down') ?? false
     const timer = setTimeout(async () => {
       if (advancing.current) return
@@ -117,14 +120,14 @@ export function RunsView() {
           setErrorMessage('Slowing down to stay within the request limit…')
         } else {
           setErrorMessage(error instanceof ApiError ? error.message : 'Advance failed.')
-          setAutoRun(false)
+          setStoppedByError(true)
         }
       } finally {
         advancing.current = false
       }
     }, throttled ? 1500 : 350)
     return () => clearTimeout(timer)
-  }, [run, autoRun, errorMessage])
+  }, [run, stoppedByError, errorMessage])
 
   async function createRun(event: React.FormEvent) {
     event.preventDefault()
@@ -137,7 +140,7 @@ export function RunsView() {
         useUpload && csvDraft.trim() ? (fileName ?? 'pasted CSV') : undefined,
       )
       setRun(detail)
-      setAutoRun(true)
+      setStoppedByError(false)
       void refreshList()
     } catch (error) {
       setErrorMessage(error instanceof ApiError ? error.message : 'Could not start the run.')
@@ -340,9 +343,13 @@ export function RunsView() {
                   <button
                     type="button"
                     className="btn btn--ghost"
-                    onClick={() => setAutoRun((v) => !v)}
+                    disabled={busy}
+                    onClick={() => {
+                      setStoppedByError(false)
+                      void act(() => (run.paused ? api.resumeRun(run.id) : api.pauseRun(run.id)))
+                    }}
                   >
-                    {autoRun ? 'Pause' : 'Resume'}
+                    {run.paused ? 'Resume' : 'Pause'}
                   </button>
                   <button
                     type="button"

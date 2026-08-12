@@ -525,6 +525,18 @@ def create_app(config_path=None, env=None):
         with lock:
             return _run_or_404(lambda: engine.advance(run_id), principal, run_id)
 
+    @app.post("/api/runs/{run_id}/pause")
+    def pause_run(run_id: str, principal=Depends(requires("write"))):
+        with lock:
+            return _run_or_404(lambda: engine.set_paused(run_id, True),
+                               principal, run_id)
+
+    @app.post("/api/runs/{run_id}/resume")
+    def resume_run(run_id: str, principal=Depends(requires("write"))):
+        with lock:
+            return _run_or_404(lambda: engine.set_paused(run_id, False),
+                               principal, run_id)
+
     @app.post("/api/runs/{run_id}/cancel")
     def cancel_run(run_id: str, principal=Depends(requires("write"))):
         with lock:
