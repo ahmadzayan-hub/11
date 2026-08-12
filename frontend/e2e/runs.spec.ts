@@ -15,14 +15,14 @@ test('analytics run: goal to approved, published, evidence-backed report', async
   await expect(approval).toContainText('high')
   await expect(page.getByText('state: awaiting approval')).toBeVisible()
 
-  // All ten specialists succeeded and the evidence is visible.
-  await expect(page.locator('.runtask--succeeded')).toHaveCount(10)
+  // Every specialist succeeded and the evidence is visible.
+  await expect(page.locator('.runtask--succeeded')).toHaveCount(12)
   await expect(
     page.locator('.runtasks').getByText('All validation checks passed', { exact: false }),
   ).toBeVisible()
-  await expect(page.locator('.runchart__svg')).toHaveCount(2)
-  await expect(page.locator('.runreport')).toContainText('Findings and claims')
-  await expect(page.locator('.runreport')).toContainText('verified')
+  await expect(page.locator('.runchart__svg')).toHaveCount(4)
+  await expect(page.locator('.runreport--full')).toContainText('Every claim in this report')
+  await expect(page.locator('.runreport--full')).toContainText('verified')
 
   // Approve: the report is published to the Obsidian-compatible vault.
   await approval.getByRole('button', { name: 'Approve and publish' }).click()
@@ -68,6 +68,6 @@ test('a CSV file can be uploaded and is analyzed', async ({ page }) => {
     timeout: 20_000,
   })
   // Figures come from the uploaded file, not the bundled sample.
-  await expect(page.locator('.runreport')).toContainText('total_sales | 400.0')
-  await expect(page.locator('.runreport')).toContainText('quarterly-sales.csv')
+  await expect(page.locator('.runreport--full')).toContainText('total_sales | 400.0')
+  await expect(page.locator('.runreport--full')).toContainText('quarterly-sales.csv')
 })

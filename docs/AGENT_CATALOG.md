@@ -22,12 +22,40 @@ list as the stopping rule).
 | 4 | Data Profiling Agent | Completeness, duplicates, types, numeric detection | yes (no numeric data) |
 | 5 | Data Cleaning Agent | Trim, dedupe, coercion — row loss always reported | yes |
 | 6 | Data Preparation Agent | Measure/dimension selection, aggregates, trend | yes |
-| 7 | Exploratory Data Analyst | Descriptive stats, growth, top-group share, outliers | yes |
-| 8 | Visualization Expert | Truthful chart specs (zero-based axes, alt text) | no |
-| 9 | Business Analyst Agent | Insights labelled finding vs recommendation; narrative via model gateway (source labelled) | no |
-| 10 | Validation Expert | Reconciles totals, row accounting, claim-evidence coverage; may reject, never rewrites | rejects → partially_completed |
-| 11 | Reporting Expert | Markdown report with claims-evidence matrix and limitations | no |
-| 12 | Knowledge Curator (publish) | Approval-gated write-back to the Obsidian vault with provenance frontmatter | approval required |
+| 7 | **Descriptive Analytics Agent** — *what happened?* | Totals, typical values, spread, period change, largest segment, unusual records | yes (no usable values) |
+| 8 | **Diagnostic Analytics Agent** — *why did it happen?* | Decomposes the change by segment (parts must sum to the whole) and measures which columns move together — association, never cause | no |
+| 9 | **Predictive Analytics Agent** — *what will happen?* | Trend fitted to history and extended, with accuracy measured by backtesting against held-out periods; declines to forecast below 4 periods | no |
+| 10 | **Prescriptive Analytics Agent** — *what should I do?* | Enumerates options the data supplies, scores each under one stated assumption, recommends one and says what would change the answer | no |
+| 11 | Visualization Expert | Truthful chart specs (zero-based axes, alt text): totals by segment, trend, who-moved-it, history-and-forecast | no |
+| 12 | Validation Expert | Reconciles totals and the change decomposition, row accounting, claim-evidence coverage, forecast accuracy declared, recommendations carry assumptions, claims free of statistical jargon; may reject, never rewrites | rejects → partially_completed |
+| 13 | Reporting Expert | One report per analytics type plus a comprehensive report embedding all four, with the claims-evidence matrix and limitations | no |
+| 14 | Knowledge Curator (publish) | Approval-gated write-back to the Obsidian vault with provenance frontmatter | approval required |
+
+## The four types form a ladder
+
+Each level consumes the one below it, which is why they run in this order
+and why the pipeline is sequential rather than parallel:
+
+```
+Descriptive → Diagnostic → Predictive → Prescriptive
+(what?)       (why?)       (what next?)  (what to do?)
+```
+
+The prescriptive agent's options come from the diagnostic decomposition
+and the predictive forecast; a recommendation with nothing underneath it
+would be an opinion.
+
+## Business language is a contract, not a style
+
+Every type answers its question in one plain sentence — the headline —
+which is the stage's summary, the top of its report, and the row in the
+comprehensive report's summary table. "Costs are rising", not "the mean
+increased by 2.3 standard deviations". This is enforced, not encouraged:
+`claims_avoid_statistical_jargon` fails validation if a claim or headline
+contains statistical vocabulary, and the narrator's system prompt carries
+the same rule. Method strings keep their technical precision, because
+that is what makes a figure auditable — the distinction is between what
+the reader is told and what the reader can check.
 
 ## Independence rules implemented
 
@@ -40,8 +68,14 @@ list as the stopping rule).
 
 ## Not implemented (honest scope)
 
-Statistical-testing, forecasting, optimization, governance/PII,
-red-team, and cost agents from the V2 catalog are not implemented — they
-require capabilities (inference libraries, LLM evaluation, PII models)
-that would be placeholders today. The pipeline’s typed stage contract is
-the extension point for them.
+Statistical hypothesis testing, causal inference, seasonality models,
+true optimization, governance/PII, red-team, and cost agents are not
+implemented — they require capabilities (inference libraries, LLM
+evaluation, PII models) that would be placeholders today.
+
+The forecasting and recommendation now shipped are deliberately modest and
+say so in their own reports: a straight-line trend with backtested error,
+and an option ranking under one stated assumption. Calling either of them
+"machine learning" or "optimization" would be a marketing claim, not a
+description. The pipeline's typed stage contract is the extension point
+when the real thing is warranted.

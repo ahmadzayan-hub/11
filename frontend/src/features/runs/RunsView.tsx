@@ -84,6 +84,9 @@ export function RunsView() {
   // (durable, server-side, also obeyed by a background worker) or a
   // request failed (local to this tab, cleared on the next action).
   const [stoppedByError, setStoppedByError] = useState(false)
+  // Which analytics type's report is on screen. Descriptive is the floor
+  // of the maturity ladder, so it opens first.
+  const [openReport, setOpenReport] = useState('descriptive')
   const [busy, setBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const advancing = useRef(false)
@@ -435,10 +438,48 @@ export function RunsView() {
             </div>
           ) : null}
 
+          {run.reports.length ? (
+            <div className="card">
+              <h3 className="card__title">Reports by analytics type</h3>
+              <div className="reporttabs" role="tablist" aria-label="Analytics type">
+                {run.reports.map((section) => (
+                  <button
+                    key={section.type}
+                    type="button"
+                    role="tab"
+                    id={`reporttab-${section.type}`}
+                    aria-selected={openReport === section.type}
+                    aria-controls={`reportpanel-${section.type}`}
+                    className={`reporttab ${openReport === section.type ? 'reporttab--on' : ''}`}
+                    onClick={() => setOpenReport(section.type)}
+                  >
+                    <span className="reporttab__name">{section.type}</span>
+                    <span className="reporttab__q">{section.question}</span>
+                  </button>
+                ))}
+              </div>
+              {run.reports
+                .filter((section) => section.type === openReport)
+                .map((section) => (
+                  <div
+                    key={section.type}
+                    role="tabpanel"
+                    id={`reportpanel-${section.type}`}
+                    aria-labelledby={`reporttab-${section.type}`}
+                  >
+                    {section.headline ? (
+                      <p className="reporthead">{section.headline}</p>
+                    ) : null}
+                    <pre className="runreport">{section.content}</pre>
+                  </div>
+                ))}
+            </div>
+          ) : null}
+
           {run.report ? (
             <div className="card">
               <h3 className="card__title">
-                Report (v{run.report.version})
+                Comprehensive report (v{run.report.version})
                 {run.report.published_path ? ' — published to the vault' : ''}
               </h3>
               {run.report.published_path ? (
@@ -446,7 +487,7 @@ export function RunsView() {
                   <Icon name="check" size={14} /> {run.report.published_path}
                 </p>
               ) : null}
-              <pre className="runreport">{run.report.content}</pre>
+              <pre className="runreport runreport--full">{run.report.content}</pre>
             </div>
           ) : null}
 

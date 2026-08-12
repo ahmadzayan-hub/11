@@ -169,12 +169,23 @@ class RunEngine:
         if task["role"] == "publish":
             return self._request_publish_approval(run_id, task)
 
+        stage = dict(analytics.PIPELINE).get(task["role"])
+        if stage is None:
+            # A run created by an earlier pipeline version. Say so plainly
+            # rather than failing with an unrelated error later.
+            message = (f"This run was created by an earlier pipeline version "
+                       f"(stage “{task['role']}” no longer exists) and cannot be "
+                       "resumed. Its stored results remain readable; start a new "
+                       "run to analyze the same data with the current pipeline.")
+            self._set_task(task["id"], "failed", summary=message)
+            self._set_run_state(run_id, "failed", error=message)
+            return self.get_run(run_id)
+
         self._set_task(task["id"], "running")
         ctx = self._context(run, tasks)
-        stage = dict(analytics.PIPELINE)[task["role"]]
         try:
             result = (stage(ctx, gateway=self.gateway)
-                      if task["role"] == "business" else stage(ctx))
+                      if task["role"] in analytics.NARRATED_STAGES else stage(ctx))
         except Exception as error:  # defensive: a stage bug must not hang the run
             self._set_task(task["id"], "failed", summary=f"Stage error: {error}")
             self._set_run_state(run_id, "failed", error=str(error))
@@ -326,7 +337,8 @@ class RunEngine:
     def get_run(self, run_id):
         run = self._row(run_id)
         tasks = []
-        charts, report = [], None
+        charts, report, reports = [], None, []
+        questions = dict(analytics.ANALYTICS_TYPES)
         for t in self.store.get_tasks(run_id):
             result = json.loads(t["result_json"]) if t["result_json"] else None
             tasks.append({"id": t["id"], "role": t["role"], "title": t["title"],
@@ -335,6 +347,16 @@ class RunEngine:
                           "claims": (result or {}).get("claims", [])})
             if result and t["role"] == "visuals":
                 charts = result["output"].get("charts", [])
+            # One report per analytics type, readable on its own.
+            if result and t["role"] in questions:
+                content = result["output"].get("report_markdown")
+                if content:
+                    reports.append({"type": t["role"], "question": questions[t["role"]],
+                                    "title": analytics.ROLE_TITLES[t["role"]],
+                                    # The one sentence a business reader needs,
+                                    # surfaced rather than left inside the markdown.
+                                    "headline": result["output"].get("headline", ""),
+                                    "content": content})
         artifact = self.store.latest_artifact(run_id)
         if artifact:
             report = {"id": artifact["id"], "name": artifact["name"],
@@ -351,4 +373,5 @@ class RunEngine:
                 "error": run["error"], "created_at": run["created_at"],
                 "updated_at": run["updated_at"], "tasks": tasks,
                 "paused": bool(run.get("paused")),
-                "approvals": approvals, "charts": charts, "report": report}
+                "approvals": approvals, "charts": charts, "report": report,
+                "reports": reports}

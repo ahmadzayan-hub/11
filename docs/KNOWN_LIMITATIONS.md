@@ -7,11 +7,31 @@ placeholder controls — absent capabilities have no UI.
 
 1. The conversational agent is deterministic (command recognition +
    tone-styled acknowledgements); it is not an LLM chat.
-2. The analytics pipeline is deterministic and descriptive: no
-   statistical hypothesis testing, forecasting, optimization, or causal
-   inference. Trend growth is not a forecast.
-3. The optional Groq narrator only phrases verified facts and was not
-   live-tested here (no credential); it falls back deterministically.
+2. The analytics pipeline covers all four types (descriptive,
+   diagnostic, predictive, prescriptive) deterministically, and each has
+   a boundary worth knowing:
+   - **Diagnostic** decomposes change by segment (exact arithmetic) and
+     measures which columns move together. It does **not** establish
+     cause; no controlled comparison or causal inference is performed.
+   - **Predictive** fits a straight-line trend to the historical periods
+     and extends it, with accuracy measured by backtesting against
+     held-out periods. There is no seasonality model, no machine
+     learning, and no probabilistic interval — the stated range comes
+     from measured backtest error. Fewer than 4 periods produces no
+     forecast; fewer than 6 produces a forecast explicitly marked as
+     having unmeasured accuracy.
+   - **Prescriptive** ranks options the dataset itself supplies, scoring
+     each with the same 10% improvement assumption. That ranks where the
+     leverage is; it is not an optimizer and knows nothing about cost,
+     capacity, or feasibility.
+   - No statistical hypothesis testing is performed anywhere.
+3. The optional narrator (Ollama, Anthropic, or Groq) only phrases
+   already-verified facts and never receives the dataset. The wire
+   contract for each provider is tested against a local HTTP server, but
+   no live provider call has been made from this environment, so
+   first-use against a real endpoint is unconfirmed. Any failure falls
+   back to the deterministic narrator, and the report always names which
+   one wrote the summary.
 4. There is no autonomous "improve forever" loop. Runs are bounded;
    lessons accumulate as vault run logs for human review. Permanent 100%
    accuracy cannot honestly be promised by any AI system; deterministic

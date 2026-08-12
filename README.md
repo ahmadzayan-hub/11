@@ -20,19 +20,31 @@ environment — not a replacement for Windows, macOS, or Linux.
   fully preserved and dependency-free
 - **One brain, two faces** — both interfaces drive the same tested Python
   `Agent` class; no logic is duplicated in the frontend
+- **All four business-analytics types, one agent each** — Descriptive
+  (*what happened?*), Diagnostic (*why?*), Predictive (*what will
+  happen?*), Prescriptive (*what should I do?*), running as a maturity
+  ladder where each consumes the one below it. **Each produces its own
+  report**, plus a comprehensive report embedding all four. Every type
+  opens with a headline in plain business language — "Revenue is up 45%
+  over the period", not "the mean increased by 2.3 standard deviations" —
+  and statistical jargon in a claim or headline **fails validation**
 - **Analytics runs** — a goal becomes a governed pipeline of specialist
-  agents (planner, data collection, profiling, cleaning, preparation,
-  analysis, visualization, business analysis, independent validation,
-  reporting) executed as durable, bounded tasks in SQLite: pause, cancel,
-  restart recovery, truthful SVG charts, and a report where **every claim
-  links to a calculation**
+  agents (planner, collection, profiling, cleaning, preparation, the four
+  analytics agents, visualization, independent validation, reporting)
+  executed as durable, bounded tasks: pause, cancel, restart recovery,
+  truthful SVG charts, and a report where **every claim links to a
+  calculation**. Forecast accuracy is measured by backtesting, and a
+  forecast that could not be tested says so
 - **Approval-gated publishing** — reports publish into an
   **Obsidian-compatible vault** (`vault/`) with provenance frontmatter and
   run-log backlinks, only after explicit approval bound to the exact
   artifact hash
 - **Provider-neutral model gateway** — deterministic by default (tests and
-  CI never need credentials); optional Groq narration via server-side env
-  vars, used only to phrase already-verified facts, never to calculate
+  CI never need credentials); optional narration by a **local Ollama
+  model**, **Claude**, or **Groq**, configured server-side. Local is
+  preferred when set because nothing leaves the machine. The model only
+  phrases already-verified facts: it never sees the dataset and never
+  produces a number, and the report names which narrator wrote the summary
 - **Installable PWA** — manifest, icons, and a service worker make the
   mobile-first app installable on Android via "Add to Home screen"
 - **Session restore** — refreshing the browser reconnects to the same
@@ -102,7 +114,7 @@ and returns fresh state snapshots.
 │   └── e2e/               # Playwright end-to-end + accessibility tests
 ├── docs/
 │   ├── UI_UX_AUDIT.md     # Audit, plan, and acceptance criteria
-│   ├── adr/               # Decision records (database, auth, backups…)
+│   ├── adr/               # Decision records (database, auth, analytics…)
 │   └── screenshots/       # Final interface captures
 ├── README.md · user_guide.md · requirements.txt · .env.example
 ```
@@ -111,9 +123,10 @@ and returns fresh state snapshots.
 
 - Python 3.10+ (CLI alone needs only the standard library)
 - Node.js 20.19+ or 22+ and npm (web interface only)
-- No API keys, no external services, no credentials required
-  (optional: `GROQ_API_KEY` on the server enables model-phrased report
-  narration — see `.env.example`)
+- No API keys, no external services, no credentials required. Optional
+  narration by a local Ollama model (`OLLAMA_MODEL`, no key), Claude
+  (`ANTHROPIC_API_KEY`), or Groq (`GROQ_API_KEY`) — all server-side, see
+  `.env.example`
 
 ## Installation
 
@@ -154,7 +167,7 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, run engine, auth, backups, worker (189 tests)
+# Python: agent, utils, API, runs, analytics, auth, backups, worker (217 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -170,7 +183,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 189 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 217 Python tests, 23 frontend unit
 tests, and 36 end-to-end checks (35 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:

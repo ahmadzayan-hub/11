@@ -128,6 +128,15 @@ export interface RunDetail {
   /** Server-side pause: honoured by clients and background workers alike. */
   paused: boolean
   tasks: RunTask[]
+  /** One report per business-analytics type, in maturity-ladder order. */
+  reports: {
+    type: string
+    question: string
+    title: string
+    /** One sentence in business language: the answer to this type's question. */
+    headline: string
+    content: string
+  }[]
   approvals: RunApproval[]
   charts: ChartSpec[]
   report: {

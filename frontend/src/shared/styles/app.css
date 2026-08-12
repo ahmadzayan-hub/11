@@ -1447,6 +1447,70 @@ form.field {
   margin-top: var(--space-2);
 }
 
+/* One tab per business-analytics type. The question is part of the
+   control, not a tooltip: "Diagnostic" means little on its own. */
+.reporttabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.reporttab {
+  flex: 1 1 auto;
+  min-width: 8.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.reporttab:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.reporttab--on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.reporttab__name {
+  font-weight: 600;
+  font-size: var(--text-s);
+  text-transform: capitalize;
+}
+
+.reporttab__q {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.reporttab--on .reporttab__q {
+  color: var(--text);
+}
+
+/* The answer, in the words an executive would use. Everything below it
+   is the working. */
+.reporthead {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-m) var(--radius-m) 0;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: var(--text-m);
+  line-height: 1.55;
+  font-weight: 500;
+}
+
 .runreport {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

@@ -74,17 +74,18 @@ class RunEngineTestCase(unittest.TestCase):
     def test_full_pipeline_reaches_approval_with_verified_claims(self):
         run = self.create_run()
         self.assertEqual(run["state"], "queued")
-        self.assertEqual(len(run["tasks"]), 11)
+        self.assertEqual(len(run["tasks"]), 13)
         run = self.advance_until(run["id"], {"awaiting_approval"})
         self.assertEqual(run["state"], "awaiting_approval")
         states = {t["role"]: t["state"] for t in run["tasks"]}
         for role in ("planner", "collector", "profiler", "cleaner", "preparer",
-                     "analyst", "visuals", "business", "validator", "reporter"):
+                     "descriptive", "diagnostic", "predictive", "prescriptive",
+                     "visuals", "validator", "reporter"):
             self.assertEqual(states[role], "succeeded", role)
         validator = next(t for t in run["tasks"] if t["role"] == "validator")
         self.assertTrue(all(c["passed"] for c in validator["quality_checks"]))
         self.assertIsNotNone(run["report"])
-        self.assertIn("## Findings and claims", run["report"]["content"])
+        self.assertIn("## Every claim in this report", run["report"]["content"])
         self.assertIn("verified", run["report"]["content"])
         self.assertTrue(run["charts"])
         self.assertEqual(len(run["approvals"]), 1)

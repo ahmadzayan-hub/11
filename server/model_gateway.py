@@ -2,41 +2,91 @@
 
 LLMs may phrase and summarize; they never calculate. Every number in a
 report comes from deterministic code, and the gateway is only offered the
-already-computed facts. With no provider configured (the default, and
-always in tests/CI) a deterministic template is used, so the application
-is fully functional offline and no test ever needs credentials.
+already-computed facts — never the dataset. With no provider configured
+(the default, and always in tests/CI) a deterministic template is used, so
+the application is fully functional offline and no test needs credentials.
 
-Groq support is configured exclusively through server-side environment
-variables (GROQ_API_KEY, GROQ_MODEL). Keys are never logged, stored, or
-sent to the browser; provider errors degrade safely to the deterministic
-narrator and are reported as such.
+Three providers, chosen by environment variable, in priority order:
+
+- **ollama** — a model running on the operator's own machine
+  (OLLAMA_MODEL, optional OLLAMA_HOST). No key, no account, and the facts
+  never leave the host. Preferred when set, because it is the only option
+  that sends nothing anywhere.
+- **anthropic** — Claude via ANTHROPIC_API_KEY (+ ANTHROPIC_MODEL).
+- **groq** — GROQ_API_KEY (+ GROQ_MODEL).
+
+Keys are read server-side only. They are never logged, stored, or sent to
+the browser, and any provider failure degrades to the deterministic
+narrator, which is reported honestly as the source in the report itself.
 """
 
 import os
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5"
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+DEFAULT_OLLAMA_MODEL = "llama3.1"
 TIMEOUT_SECONDS = 12
+MAX_OUTPUT_TOKENS = 220
+
+# The house style the narrator must follow. A finding that cannot be
+# communicated cannot drive action, so plain language is part of the
+# contract with the model — and it is checked afterwards regardless
+# (analytics.validator.claims_avoid_statistical_jargon).
+SYSTEM_PROMPT = (
+    "You write two-sentence executive summaries for business readers — a "
+    "board, an executive, an investor. Use ONLY the verified facts provided. "
+    "Never add numbers, causes, predictions, or claims of your own. Write in "
+    "plain business language: say “costs are rising”, never “the mean "
+    "increased by 2.3 standard deviations”; say “the data strongly suggests "
+    "maintenance is the main cost driver”, never “p < 0.05”. No statistical "
+    "vocabulary, no hedging about methodology."
+)
 
 
 class ModelGateway:
-    def __init__(self):
-        self.api_key = os.environ.get("GROQ_API_KEY") or None
-        self.model = os.environ.get("GROQ_MODEL", DEFAULT_GROQ_MODEL)
+    def __init__(self, env=None):
+        env = os.environ if env is None else env
+        self.ollama_model = env.get("OLLAMA_MODEL") or None
+        self.ollama_host = env.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST
+        self.anthropic_key = env.get("ANTHROPIC_API_KEY") or None
+        self.anthropic_model = env.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL)
+        self.groq_key = env.get("GROQ_API_KEY") or None
+        self.groq_model = env.get("GROQ_MODEL", DEFAULT_GROQ_MODEL)
+
+        # Local first: it is the only provider that sends nothing off the
+        # machine, so it wins when the operator has configured one.
+        if self.ollama_model:
+            self.provider, self.model = "ollama", self.ollama_model
+        elif self.anthropic_key:
+            self.provider, self.model = "anthropic", self.anthropic_model
+        elif self.groq_key:
+            self.provider, self.model = "groq", self.groq_model
+        else:
+            self.provider, self.model = "deterministic", None
 
     def status(self):
         return {
-            "provider": "groq" if self.api_key else "deterministic",
-            "model": self.model if self.api_key else None,
-            "configured": bool(self.api_key),
+            "provider": self.provider,
+            "model": self.model,
+            "configured": self.provider != "deterministic",
+            # Stated plainly because it is the question that matters: does
+            # anything leave this machine?
+            "local_only": self.provider in ("deterministic", "ollama"),
         }
 
     def narrate(self, goal, facts):
-        """Return {'text', 'source'} where source is 'model' or
-        'deterministic'. Facts are short verified statements; the model is
-        asked only to phrase them, never to add numbers or claims."""
-        if self.api_key:
-            text = self._call_groq(goal, facts)
+        """Return {'text', 'source'}. Facts are short verified statements;
+        the model is asked only to phrase them."""
+        callers = {"ollama": self._call_ollama,
+                   "anthropic": self._call_anthropic,
+                   "groq": self._call_groq}
+        caller = callers.get(self.provider)
+        if caller:
+            text = caller(goal, facts)
             if text:
                 return {"text": text, "source": "model"}
         summary = " ".join(facts[:4])
@@ -45,38 +95,59 @@ class ModelGateway:
             "source": "deterministic",
         }
 
-    def _call_groq(self, goal, facts):
+    def _prompt(self, goal, facts):
+        return "Goal: " + goal + "\nVerified facts:\n- " + "\n- ".join(facts)
+
+    def _post(self, url, headers, payload):
         try:
             import httpx
 
-            response = httpx.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json={
-                    "model": self.model,
-                    "max_tokens": 220,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You write two-sentence executive summaries. "
-                                "Use ONLY the verified facts provided. Do not "
-                                "add numbers, causes, or claims of your own."
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            "content": "Goal: " + goal + "\nVerified facts:\n- "
-                            + "\n- ".join(facts),
-                        },
-                    ],
-                },
-                timeout=TIMEOUT_SECONDS,
-            )
+            response = httpx.post(url, headers=headers, json=payload,
+                                  timeout=TIMEOUT_SECONDS)
             if response.status_code != 200:
                 return None
-            content = response.json()["choices"][0]["message"]["content"]
-            return content.strip() if isinstance(content, str) and content.strip() else None
+            return response.json()
         except Exception:
             # Timeouts, network, schema drift: degrade to deterministic.
+            return None
+
+    @staticmethod
+    def _clean(text):
+        return text.strip() if isinstance(text, str) and text.strip() else None
+
+    def _call_ollama(self, goal, facts):
+        body = self._post(
+            self.ollama_host.rstrip("/") + "/api/chat", {},
+            {"model": self.ollama_model, "stream": False,
+             "options": {"num_predict": MAX_OUTPUT_TOKENS},
+             "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                          {"role": "user", "content": self._prompt(goal, facts)}]})
+        try:
+            return self._clean(body["message"]["content"])
+        except (TypeError, KeyError, IndexError):
+            return None
+
+    def _call_anthropic(self, goal, facts):
+        body = self._post(
+            ANTHROPIC_URL,
+            {"x-api-key": self.anthropic_key,
+             "anthropic-version": ANTHROPIC_VERSION,
+             "content-type": "application/json"},
+            {"model": self.anthropic_model, "max_tokens": MAX_OUTPUT_TOKENS,
+             "system": SYSTEM_PROMPT,
+             "messages": [{"role": "user", "content": self._prompt(goal, facts)}]})
+        try:
+            return self._clean(body["content"][0]["text"])
+        except (TypeError, KeyError, IndexError):
+            return None
+
+    def _call_groq(self, goal, facts):
+        body = self._post(
+            GROQ_URL, {"Authorization": f"Bearer {self.groq_key}"},
+            {"model": self.groq_model, "max_tokens": MAX_OUTPUT_TOKENS,
+             "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                          {"role": "user", "content": self._prompt(goal, facts)}]})
+        try:
+            return self._clean(body["choices"][0]["message"]["content"])
+        except (TypeError, KeyError, IndexError):
             return None

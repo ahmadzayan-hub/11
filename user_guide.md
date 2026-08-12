@@ -89,12 +89,31 @@ Open **Runs** to turn a goal into a governed analytics pipeline. Choose
 the bundled sample sales dataset, upload a CSV file, or paste one (header
 row first, up to 2 MB / 50,000 rows), then start the run. Uploading the
 same file twice stores it once, and a previous upload can be re-analysed
-without sending it again. Ten specialist agents execute in order —
-planning, ingestion, profiling, cleaning, preparation, analysis,
-visualization, business insights, independent validation, and reporting —
-and you can **Pause**, **Resume**, or **Cancel** at any time. Pausing is
+without sending it again. Specialist agents execute in order — planning,
+ingestion, profiling, cleaning, preparation, the four analytics agents,
+visualization, independent validation, and reporting — and you can
+**Pause**, **Resume**, or **Cancel** at any time. Pausing is
 recorded on the server, so it holds across a refresh and applies to a
 background worker too, not just the tab you clicked in.
+
+### The four questions, four reports
+
+The run answers the four questions of business analytics, each with its
+own agent and its own report. Use the tabs above the report to move
+between them:
+
+| Tab | Question | What you get |
+| --- | --- | --- |
+| **Descriptive** | What happened? | Totals, the typical value, how much things vary, the change across the period, the biggest segment, and records worth a second look |
+| **Diagnostic** | Why did it happen? | Which segment moved the number and by how much (the parts add up to the whole), and which columns move together — described as association, because moving together is not proof of cause |
+| **Predictive** | What will happen? | The next three periods, if the current pattern continues, with the accuracy this method achieved when tested against past periods it had not seen. Too little history and it tells you so instead of guessing |
+| **Prescriptive** | What should I do? | The options your data supports, what each is worth, a recommendation, and — stated plainly — the assumption behind the ranking and how close the call was |
+
+Each report opens with one sentence in plain business language. That
+sentence is the point: a finding nobody can act on is not a finding. The
+technical method for every figure is kept in a table at the bottom of each
+report, so anything can be checked without cluttering what you read
+first.
 
 A closed or crashed browser loses nothing: runs are stored durably and
 resume from where they stopped. By default a run advances while the Runs
