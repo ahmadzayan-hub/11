@@ -85,10 +85,13 @@ and returns fresh state snapshots.
 ├── main.py                # CLI entry point
 ├── agent.py               # The Agent class (commands, memory, preferences)
 ├── utils.py               # Config loading, JSON persistence, validation
-├── server/app.py          # FastAPI adapter + static hosting
+├── server/                # FastAPI adapter, run engine, storage, auth,
+│                          # backup/restore
+├── scripts/               # backup.py · restore.py (operator commands)
 ├── config.json            # User-editable settings
 ├── data/memory.json       # Persistent memory (starts empty)
-├── tests/                 # Python unittest suite (agent, utils, API)
+├── tests/                 # Python unittest suite (agent, utils, API,
+│                          # runs, auth, backup drill)
 ├── frontend/
 │   ├── src/
 │   │   ├── app/           # Shell, store, theme
@@ -99,6 +102,7 @@ and returns fresh state snapshots.
 │   └── e2e/               # Playwright end-to-end + accessibility tests
 ├── docs/
 │   ├── UI_UX_AUDIT.md     # Audit, plan, and acceptance criteria
+│   ├── adr/               # Decision records (database, auth, backups…)
 │   └── screenshots/       # Final interface captures
 ├── README.md · user_guide.md · requirements.txt · .env.example
 ```
@@ -150,13 +154,13 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, and run-engine tests (88 tests)
+# Python: agent, utils, API, run engine, auth, backup drill (156 tests)
 python -m unittest discover tests
 
-# Frontend unit tests (18 tests)
+# Frontend unit tests (23 tests)
 cd frontend && npm test
 
-# End-to-end + accessibility (23 checks across desktop and mobile;
+# End-to-end + accessibility (36 checks across desktop and mobile;
 # requires the production build: npm run build)
 cd frontend && npx playwright test
 
@@ -165,9 +169,36 @@ cd frontend && npm run typecheck
 ```
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
-every push. All 129 tests pass on the submitted version. In environments with a
-pre-installed browser, point Playwright at it:
+every push, including the run-engine and backup suites against a real
+PostgreSQL 16 service. Last verified: 156 Python tests, 23 frontend unit
+tests, and 36 end-to-end checks (35 executed, 1 desktop-only check
+skipped on the mobile project). In environments with a pre-installed
+browser, point Playwright at it:
 `PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium npx playwright test`.
+
+## Backup and restore
+
+```bash
+python scripts/backup.py                      # → backups/agentic-<utc>.json
+python scripts/restore.py <file> --dry-run    # inspect without writing
+python scripts/restore.py <file> --yes        # replace the database
+```
+
+Both honour `DATABASE_URL` (hosted PostgreSQL) and fall back to the local
+SQLite database. A backup is one dialect-neutral JSON document, so a
+local backup restores into hosted PostgreSQL — which is also the
+supported way to move an existing install to a server. Restore replaces
+the database rather than merging into it, and refuses an unreadable or
+unknown-version file before deleting anything.
+
+`tests/test_backup.py` is a genuine drill, not a file check: it destroys
+the database and rebuilds it through these scripts, then asserts the runs,
+evidence, approval decisions, published notes, sessions, and datasets
+survived — and that a restored run can still be advanced to completion.
+It runs against both SQLite and PostgreSQL on every push. Measured times
+and the RPO/RTO position are in `docs/adr/0005-backup-and-restore.md`;
+in local mode remember that `data/memory.json` sits outside the database
+and needs backing up alongside it.
 
 ## Basic Usage Example (web)
 
@@ -216,14 +247,18 @@ See `user_guide.md` for the full command reference.
 - Sessions survive both a browser refresh and a server restart: the
   conversation, its preferences, and its history are stored durably
   (SQLite locally, PostgreSQL when `DATABASE_URL` is set).
-- The server is designed for local, single-user use — there is no
-  authentication layer.
+- Local mode runs single-user with no login. Hosted mode verifies a
+  managed provider's tokens with server-side roles and per-owner
+  isolation; the live provider round-trip has never been executed here.
+- Nothing schedules backups: `scripts/backup.py` runs when someone runs
+  it. See `docs/KNOWN_LIMITATIONS.md` for the full list.
 
 ## Future Improvements
 
 - Persist preference changes back to `config.json` on request
 - Streamed responses and a pluggable AI-model backend
-- Session restore across server restarts
+- A scheduled off-site backup job (see ADR 0005 for why it is not a
+  workflow in this public repository)
 - Named memory keys (e.g. `/remember birthday = 1 May`)
 
 ## Author and Course Information

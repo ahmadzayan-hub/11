@@ -11,8 +11,10 @@ Deterministic assistant (CLI + web), durable analytics run engine with a
 governed ten-specialist pipeline, claim–evidence validation, approval-
 gated Obsidian vault publishing, provider-neutral model gateway
 (deterministic default, optional Groq narration), mobile-first PWA,
-security hardening, CI gates. Evidence: 88 Python + 18 unit + 23 e2e
-tests green in CI; Lighthouse 95/100/100/100; clean npm audit.
+security hardening, CI gates. Evidence at the time of that gate: 88
+Python + 18 unit + 23 e2e tests green in CI; Lighthouse 95/100/100/100;
+clean npm audit. (Tier 2 work has since grown the suite to 156 Python +
+23 unit + 36 e2e checks.)
 
 Standing rule already enforced and carried forward: **raw datasets are
 never sent to a model provider** — only deterministic, already-verified
@@ -37,9 +39,14 @@ facts reach the narrator.
    Postgres 16; Supabase project `agentic-os` provisioned, RLS
    deny-by-default; sessions, memory, and published vault notes all moved
    behind the store, so the backend requires no local disk (ADR 0001 and
-   its amendment), plus content-addressed dataset storage (ADR 0004).
-   **Remaining:** backups and restore drills (RPO/RTO); external object
-   storage only becomes worthwhile above tens of megabytes.
+   its amendment), plus content-addressed dataset storage (ADR 0004), and
+   backups with an executed restore drill — the suite destroys the
+   database and rebuilds it through the operator scripts on every push,
+   against both dialects, with measured times (ADR 0005).
+   **Remaining:** a scheduled off-site backup job, which cannot live in
+   this public repository without publishing user data (ADR 0005), and
+   external object storage, which only becomes worthwhile above tens of
+   megabytes.
 3. Durable workflow execution: evaluate **Vercel Workflows for Python**
    directly against the run-engine contract (pause/resume/recovery)
    before committing to the abstraction; otherwise database-backed jobs

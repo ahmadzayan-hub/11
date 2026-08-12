@@ -265,15 +265,15 @@ class RunEnginePostgresTestCase(RunEngineTestCase):
     def setUp(self):
         import psycopg2
 
+        from server.storage import TABLES
+
         # Fresh tables per test so runs from other tests never leak in.
+        # The list is derived from the store's own table tuple: a
+        # hand-maintained copy went stale once and leaked dataset rows.
         conn = psycopg2.connect(PG_TEST_URL)
         conn.autocommit = True
-        # Every table the store creates must be listed here, or rows leak
-        # between tests and produce confusing cross-test failures.
         conn.cursor().execute(
-            "DROP TABLE IF EXISTS artifacts, approvals, tasks, runs, "
-            "sessions, memory_kv, vault_notes, datasets CASCADE"
-        )
+            f"DROP TABLE IF EXISTS {', '.join(TABLES)} CASCADE")
         conn.close()
         super().setUp()
 

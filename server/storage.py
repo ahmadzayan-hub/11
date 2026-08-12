@@ -12,6 +12,32 @@ placeholder differs. Rows cross the boundary as plain dicts, so the
 engine never sees a driver type.
 """
 
+# The single source of truth for which tables exist. Backup, restore and
+# test teardown all derive from this, so adding a table cannot leave one
+# of them stale (a bug that has already bitten once).
+TABLES = (
+    "runs",
+    "tasks",
+    "approvals",
+    "artifacts",
+    "sessions",
+    "memory_kv",
+    "vault_notes",
+    "datasets",
+)
+
+# Restore must insert parents before children.
+RESTORE_ORDER = (
+    "datasets",
+    "runs",
+    "tasks",
+    "approvals",
+    "artifacts",
+    "sessions",
+    "memory_kv",
+    "vault_notes",
+)
+
 SCHEMA_STATEMENTS = [
     """CREATE TABLE IF NOT EXISTS runs (
       id TEXT PRIMARY KEY, goal TEXT NOT NULL, dataset_name TEXT NOT NULL,
@@ -224,6 +250,25 @@ class SqlStore:
         return self._exec(
             "SELECT id, sha256, name, byte_size, created_at FROM datasets "
             "WHERE owner = ? ORDER BY created_at DESC LIMIT 50", (owner,))
+
+    # -- backup and restore ----------------------------------------------
+    def export_all(self):
+        """Every durable row, as plain JSON-serialisable dicts."""
+        return {table: self._exec(f"SELECT * FROM {table}") for table in TABLES}
+
+    def import_all(self, payload):
+        """Replace all contents with a backup. Returns rows restored.
+
+        Children are deleted before parents and inserted after them, so
+        foreign keys hold at every point."""
+        for table in reversed(RESTORE_ORDER):
+            self._exec(f"DELETE FROM {table}")
+        restored = 0
+        for table in RESTORE_ORDER:
+            for row in payload.get(table, []):
+                self.insert(table, row)
+                restored += 1
+        return restored
 
 
 class DbMemoryBackend:

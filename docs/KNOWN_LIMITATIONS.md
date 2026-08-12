@@ -47,13 +47,25 @@ required local files. Both behaviors are covered by tests
    credentials are owner steps. Without `DATABASE_URL` a deployment
    falls back to ephemeral per-instance storage. See
    docs/VERCEL_DEPLOYMENT.md.
-9. Android support is a verified installable PWA; a native Capacitor
+8. Android support is a verified installable PWA; a native Capacitor
    project is documented but not shipped (no Android SDK available to
    build or test one honestly).
-10. Obsidian integration is approval-gated write-back into a vault
+9. Obsidian integration is approval-gated write-back into a vault
     folder; reading/sync/retrieval from a vault is not implemented.
-11. Interface language is English; the `language` preference is recorded
+10. Interface language is English; the `language` preference is recorded
     but does not translate the UI. No RTL support yet.
+11. Backups are on-demand: `scripts/backup.py` produces a verified,
+    restorable backup (the drill in `tests/test_backup.py` destroys the
+    database and rebuilds it on every push), but **nothing schedules
+    it**, so the recovery point objective is "whenever it was last run".
+    A nightly GitHub Actions job is deliberately not shipped — this
+    repository is public and workflow artifacts would expose user data
+    (ADR 0005). Supabase's automated daily backups cover Pro plans and
+    above, not the free plan this project uses. Backup files are
+    unencrypted JSON, the whole database is held in memory while one is
+    written (fine at the 2 MB dataset limit, not at hundreds of
+    megabytes), and in local mode `data/memory.json` lives outside the
+    database and must be backed up separately.
 12. Dataset ingestion is CSV only — uploaded as a file or pasted, up to
     2 MB and 50,000 rows, held in the database rather than object
     storage. XLSX, JSON, Parquet, and database connectors are not
