@@ -4,7 +4,6 @@
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/index.py": {
-      "runtime": "@vercel/python@4.3.0",
       "includeFiles": "{server/**,agent.py,utils.py,config.json}",
       "maxDuration": 30
     }
