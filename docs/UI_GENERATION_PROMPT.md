@@ -4,6 +4,13 @@ Paste everything below the line into a design-generation tool (v0, Figma
 Make, Lovable, Galileo, Uizard, or similar). It is self-contained: it
 does not assume the tool can see this repository.
 
+**Which prompt?** This one is for tools that draw (Figma Make, Galileo,
+Uizard) — it describes the interface in prose. For tools that generate
+working React (v0, Lovable, Bolt, Subframe), use
+`UI_PROMPT_CODEGEN.md` instead: it carries the real API contract,
+TypeScript types, and design tokens as JSON, so the output can be wired
+to the running backend.
+
 Two notes before you paste:
 
 - **Trim to fit.** Some tools cap prompt length. Sections 1–5 are the
