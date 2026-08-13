@@ -73,6 +73,17 @@ const TASK_ICON: Record<string, string> = {
   pending: '·',
 }
 
+/** Arrow-key movement inside the analytics-type tablist. Selection
+ *  follows focus, which is the expected behaviour when switching panels
+ *  is cheap — here it only swaps already-loaded text. */
+function nextTabIndex(key: string, current: number, count: number): number | null {
+  if (key === 'ArrowRight') return (current + 1) % count
+  if (key === 'ArrowLeft') return (current - 1 + count) % count
+  if (key === 'Home') return 0
+  if (key === 'End') return count - 1
+  return null
+}
+
 export function RunsView() {
   const [runs, setRuns] = useState<RunSummary[]>([])
   const [run, setRun] = useState<RunDetail | null>(null)
@@ -163,6 +174,15 @@ export function RunsView() {
     } finally {
       setBusy(false)
     }
+  }
+
+  function moveTabFocus(event: React.KeyboardEvent, types: string[]) {
+    const target = nextTabIndex(event.key, types.indexOf(openReport), types.length)
+    if (target === null) return
+    event.preventDefault()
+    const type = types[target]
+    setOpenReport(type)
+    document.getElementById(`reporttab-${type}`)?.focus()
   }
 
   const pendingApproval = run?.approvals.find((a) => a.state === 'pending')
@@ -441,7 +461,12 @@ export function RunsView() {
           {run.reports.length ? (
             <div className="card">
               <h3 className="card__title">Reports by analytics type</h3>
-              <div className="reporttabs" role="tablist" aria-label="Analytics type">
+              <div
+                className="reporttabs"
+                role="tablist"
+                aria-label="Analytics type"
+                onKeyDown={(event) => moveTabFocus(event, run.reports.map((s) => s.type))}
+              >
                 {run.reports.map((section) => (
                   <button
                     key={section.type}
@@ -450,6 +475,9 @@ export function RunsView() {
                     id={`reporttab-${section.type}`}
                     aria-selected={openReport === section.type}
                     aria-controls={`reportpanel-${section.type}`}
+                    // Roving tabindex: one stop for the whole tablist, then
+                    // the arrow keys move within it (WAI-ARIA tabs pattern).
+                    tabIndex={openReport === section.type ? 0 : -1}
                     className={`reporttab ${openReport === section.type ? 'reporttab--on' : ''}`}
                     onClick={() => setOpenReport(section.type)}
                   >
@@ -470,7 +498,16 @@ export function RunsView() {
                     {section.headline ? (
                       <p className="reporthead">{section.headline}</p>
                     ) : null}
-                    <pre className="runreport">{section.content}</pre>
+                    {/* The <pre> is what scrolls, so the tab stop belongs
+                        here rather than on the panel around it. */}
+                    <pre
+                      className="runreport"
+                      tabIndex={0}
+                      role="region"
+                      aria-label={`${section.type} report text`}
+                    >
+                      {section.content}
+                    </pre>
                   </div>
                 ))}
             </div>
@@ -487,7 +524,14 @@ export function RunsView() {
                   <Icon name="check" size={14} /> {run.report.published_path}
                 </p>
               ) : null}
-              <pre className="runreport runreport--full">{run.report.content}</pre>
+              <pre
+                className="runreport runreport--full"
+                tabIndex={0}
+                role="region"
+                aria-label="Comprehensive report text"
+              >
+                {run.report.content}
+              </pre>
             </div>
           ) : null}
 

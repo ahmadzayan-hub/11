@@ -174,7 +174,7 @@ python -m unittest discover tests
 # Frontend unit tests (23 tests)
 cd frontend && npm test
 
-# End-to-end + accessibility (36 checks across desktop and mobile;
+# End-to-end + accessibility (38 checks across desktop and mobile;
 # requires the production build: npm run build)
 cd frontend && npx playwright test
 
@@ -185,7 +185,7 @@ cd frontend && npm run typecheck
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
 PostgreSQL 16 service. Last verified: 240 Python tests, 23 frontend unit
-tests, and 36 end-to-end checks (35 executed, 1 desktop-only check
+tests, and 38 end-to-end checks (37 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:
 `PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium npx playwright test`.
