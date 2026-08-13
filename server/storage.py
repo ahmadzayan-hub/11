@@ -299,6 +299,22 @@ class SqlStore:
         rows = self._exec("SELECT * FROM datasets WHERE id = ?", (dataset_id,))
         return rows[0] if rows else None
 
+    # -- usage ------------------------------------------------------------
+    # Usage is counted from the rows themselves rather than a parallel
+    # tally, so it cannot drift away from what the tenant actually has.
+    def count_runs_since(self, owner, since):
+        rows = self._exec(
+            "SELECT COUNT(*) AS n FROM runs WHERE owner = ? AND created_at >= ?",
+            (owner, since))
+        return int(rows[0]["n"]) if rows else 0
+
+    def dataset_usage(self, owner):
+        rows = self._exec(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(byte_size), 0) AS bytes "
+            "FROM datasets WHERE owner = ?", (owner,))
+        row = rows[0] if rows else {"n": 0, "bytes": 0}
+        return {"datasets": int(row["n"]), "bytes": int(row["bytes"] or 0)}
+
     def list_datasets(self, owner):
         return self._exec(
             "SELECT id, sha256, name, byte_size, created_at FROM datasets "

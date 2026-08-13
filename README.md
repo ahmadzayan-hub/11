@@ -103,7 +103,8 @@ and returns fresh state snapshots.
 ├── config.json            # User-editable settings
 ├── data/memory.json       # Persistent memory (starts empty)
 ├── tests/                 # Python unittest suite (agent, utils, API,
-│                          # runs, auth, backups, worker)
+│                          # runs, analytics, auth, quotas, backups,
+│                          # worker, model gateway)
 ├── frontend/
 │   ├── src/
 │   │   ├── app/           # Shell, store, theme
@@ -167,7 +168,7 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, runs, analytics, auth, backups, worker (220 tests)
+# Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker (240 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -183,7 +184,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 220 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 240 Python tests, 23 frontend unit
 tests, and 36 end-to-end checks (35 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:

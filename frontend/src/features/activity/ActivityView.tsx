@@ -1,7 +1,107 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { api } from '../../shared/api'
 import { Icon } from '../../shared/components/Icon'
 import type { IconName } from '../../shared/components/Icon'
-import type { ActivityEvent, ConnectionStatus, SessionState } from '../../shared/types'
+import type { ActivityEvent, ConnectionStatus, SessionState, Usage } from '../../shared/types'
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`
+  if (bytes < 1_000_000) return `${(bytes / 1000).toFixed(1)} kB`
+  return `${(bytes / 1_000_000).toFixed(1)} MB`
+}
+
+/** A limit the server enforces but the interface never shows is a trap:
+ *  the first a user hears of it is a refusal. */
+function UsageCard() {
+  const [usage, setUsage] = useState<Usage | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .usage()
+      .then((result) => !cancelled && setUsage(result))
+      .catch(() => !cancelled && setFailed(true))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (failed) {
+    return (
+      <div className="card">
+        <h3 className="card__title">Usage</h3>
+        <p className="controlrow__help">Usage could not be read from the server.</p>
+      </div>
+    )
+  }
+  if (!usage) {
+    return (
+      <div className="card">
+        <h3 className="card__title">Usage</h3>
+        <div className="skeleton skeleton--line" />
+        <div className="skeleton skeleton--line" />
+      </div>
+    )
+  }
+
+  const rows = [
+    {
+      key: 'runs',
+      label: 'Runs today',
+      used: `${usage.runs_today.used} of ${usage.runs_today.limit}`,
+      share: usage.runs_today.limit ? usage.runs_today.used / usage.runs_today.limit : 0,
+      help: `Resets at midnight UTC. ${usage.runs_today.remaining} left.`,
+    },
+    {
+      key: 'datasets',
+      label: 'Datasets stored',
+      used: `${usage.datasets.used} of ${usage.datasets.limit}`,
+      share: usage.datasets.limit ? usage.datasets.used / usage.datasets.limit : 0,
+      help: 'Re-running a stored dataset costs nothing.',
+    },
+    {
+      key: 'bytes',
+      label: 'Storage used',
+      used: `${formatBytes(usage.dataset_bytes.used)} of ${formatBytes(usage.dataset_bytes.limit)}`,
+      share: usage.dataset_bytes.limit ? usage.dataset_bytes.used / usage.dataset_bytes.limit : 0,
+      help: 'Uploading the same file twice stores it once.',
+    },
+  ]
+
+  return (
+    <div className="card">
+      <h3 className="card__title">Usage</h3>
+      <ul className="usage">
+        {rows.map((row) => (
+          <li key={row.key} className="usage__row">
+            <div className="usage__head">
+              <span className="controlrow__label">{row.label}</span>
+              <span className="usage__value">{row.used}</span>
+            </div>
+            <div
+              className="usage__track"
+              role="meter"
+              aria-valuenow={Math.round(row.share * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`${row.label}: ${row.used}`}
+            >
+              <div
+                className={`usage__fill ${row.share >= 0.9 ? 'usage__fill--high' : ''}`}
+                style={{ width: `${Math.min(100, Math.round(row.share * 100))}%` }}
+              />
+            </div>
+            <span className="controlrow__help">{row.help}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="privacy-note">
+        Not measured: {usage.not_tracked.join(', ')}.
+      </p>
+    </div>
+  )
+}
 
 type ActivityFilter = 'all' | 'system' | 'memory' | 'preferences' | 'errors'
 
@@ -179,6 +279,8 @@ export function ActivityView({ events, session, status, lastSyncedAt }: Activity
               </li>
             </ul>
           </div>
+
+          <UsageCard />
         </div>
       </div>
     </section>

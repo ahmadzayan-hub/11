@@ -156,3 +156,19 @@ export interface RunSummary {
   created_at: string
   updated_at: string
 }
+
+/** What this tenant has used against its limits, from GET /api/usage. */
+export interface UsageAllowance {
+  used: number
+  limit: number
+  remaining: number
+  resets_at?: string
+}
+
+export interface Usage {
+  runs_today: UsageAllowance
+  datasets: UsageAllowance
+  dataset_bytes: UsageAllowance
+  /** Real costs the system does not measure — named, not hidden. */
+  not_tracked: string[]
+}

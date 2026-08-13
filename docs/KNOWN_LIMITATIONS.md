@@ -96,7 +96,13 @@ required local files. Both behaviors are covered by tests
     written (fine at the 2 MB dataset limit, not at hundreds of
     megabytes), and in local mode `data/memory.json` lives outside the
     database and must be backed up separately.
-12. Dataset ingestion is CSV only — uploaded as a file or pasted, up to
+12. Usage is bounded per owner (runs/day, dataset count, dataset bytes)
+    but **no cost in currency is tracked**: there is no billing
+    relationship, model tokens are not counted, and serverless execution
+    time is not measured. `/api/usage` names those gaps rather than
+    hiding them. The daily window is calendar-based (midnight UTC), so a
+    burst either side of midnight can exceed the intended daily rate.
+13. Dataset ingestion is CSV only — uploaded as a file or pasted, up to
     2 MB and 50,000 rows, held in the database rather than object
     storage. XLSX, JSON, Parquet, and database connectors are not
     implemented, and analysis is in-memory (no DuckDB/Polars), so

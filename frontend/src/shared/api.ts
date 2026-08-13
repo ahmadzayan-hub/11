@@ -6,6 +6,7 @@ import type {
   RunSummary,
   SessionState,
   TranscriptEntry,
+  Usage,
 } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
@@ -153,6 +154,7 @@ export const api = {
       }),
     }),
   listRuns: () => request<{ runs: RunSummary[] }>('/api/runs'),
+  usage: () => request<Usage>('/api/usage'),
   getRun: (id: string) => request<RunDetail>(`/api/runs/${id}`),
   advanceRun: (id: string) => request<RunDetail>(`/api/runs/${id}/advance`, { method: 'POST' }),
   pauseRun: (id: string) => request<RunDetail>(`/api/runs/${id}/pause`, { method: 'POST' }),

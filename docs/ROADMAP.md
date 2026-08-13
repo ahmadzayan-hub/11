@@ -13,7 +13,7 @@ gated Obsidian vault publishing, provider-neutral model gateway
 (deterministic default, optional Groq narration), mobile-first PWA,
 security hardening, CI gates. Evidence at the time of that gate: 88
 Python + 18 unit + 23 e2e tests green in CI; Lighthouse 95/100/100/100;
-clean npm audit. (Tier 2 work has since grown the suite to 156 Python +
+clean npm audit. (Tier 2 work has since grown the suite to 240 Python +
 23 unit + 36 e2e checks.)
 
 Standing rule already enforced and carried forward: **raw datasets are
@@ -76,6 +76,15 @@ facts reach the narrator.
    variables, which need the owner's credentials — no deployment has
    been made or claimed (see docs/VERCEL_DEPLOYMENT.md).
 6. Tenant quotas, usage budgets, and cost tracking (FinOps foundation).
+   **Done:** three per-owner limits — runs per day, datasets stored, and
+   total dataset bytes — counted from the durable rows rather than a
+   parallel tally, enforced before the resource is created, refused with
+   a 429 that names the limit and when it resets, and shown in the
+   interface as meters (ADR 0008). Re-uploading a stored dataset is not
+   charged. **Deliberately not done:** currency figures. There is no
+   billing relationship, no token accounting, and no execution-time
+   measurement here, so a cost column would be fabricated; the response
+   names what it does not measure instead.
 
 ## Tier 3 — Enterprise Release (scoped, not started)
 

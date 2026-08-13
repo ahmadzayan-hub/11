@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from server import analytics
+from server import analytics, quota
 
 RUN_STATES = {"queued", "running", "awaiting_approval", "verifying",
               "completed", "partially_completed", "failed", "cancelled"}
@@ -54,10 +54,13 @@ def _stamp(moment):
 
 
 class RunEngine:
-    def __init__(self, store, vault_dir, gateway):
+    def __init__(self, store, vault_dir, gateway, limits=None):
         self.store = store
         self.vault_dir = Path(vault_dir)
         self.gateway = gateway
+        # None disables quota enforcement entirely (the CLI and tests that
+        # are not about quotas); the API always passes limits.
+        self.limits = limits
 
     # -- state helpers ----------------------------------------------------
     def _set_run_state(self, run_id, new_state, error=None):
@@ -85,7 +88,11 @@ class RunEngine:
         digest = hashlib.sha256(text.encode()).hexdigest()
         existing = self.store.find_dataset(digest, owner)
         if existing:
+            # Already stored: consumes no new space, so no quota applies.
             return existing
+        if self.limits:
+            quota.check_dataset(self.store, owner, self.limits,
+                                len(text.encode()))
         dataset_id = uuid.uuid4().hex[:12]
         self.store.insert("datasets", {
             "id": dataset_id, "sha256": digest, "name": name,
@@ -95,6 +102,10 @@ class RunEngine:
 
     def create_run(self, goal, dataset_text=None, dataset_name=None,
                    owner="local-owner", dataset_id=None):
+        # Checked before anything is written, so a refused run leaves no
+        # half-created rows behind.
+        if self.limits:
+            quota.check_run(self.store, owner, self.limits)
         run_id = uuid.uuid4().hex[:12]
         if dataset_id:
             dataset = self.store.get_dataset(dataset_id)

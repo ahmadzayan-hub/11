@@ -1497,6 +1497,53 @@ form.field {
   color: var(--text);
 }
 
+/* Usage against the tenant's limits. The bar is a meter, not decoration:
+   it turns amber only when the allowance is nearly spent. */
+.usage {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.usage__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.usage__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.usage__track {
+  height: 6px;
+  margin: var(--space-2) 0 var(--space-1);
+  background: var(--surface-sunken);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.usage__fill {
+  height: 100%;
+  background: var(--accent-solid);
+  border-radius: 999px;
+  transition: width var(--motion-medium);
+}
+
+.usage__fill--high {
+  background: var(--warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage__fill {
+    transition: none;
+  }
+}
+
 /* The answer, in the words an executive would use. Everything below it
    is the working. */
 .reporthead {

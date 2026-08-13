@@ -26,6 +26,8 @@ from agent import Agent
 from server.model_gateway import ModelGateway
 from server.runs import RunEngine
 from server.auth import AuthError, build_identity, public_auth_config
+from server.quota import QuotaExceeded, load_limits
+from server.quota import usage as quota_usage
 from server.rate_limit import WRITE_METHODS, RateLimiter
 from server.storage import DbMemoryBackend, PostgresStore, open_store
 from utils import load_config
@@ -170,10 +172,12 @@ def create_app(config_path=None, env=None):
         os.environ.get("DATABASE_URL") or config.get("database_url"),
         config.get("database_file") or PROJECT_ROOT / "data" / "agentic.db",
     )
+    limits = load_limits(env)
     engine = RunEngine(
         store,
         config.get("vault_dir") or PROJECT_ROOT / "vault",
         gateway,
+        limits=limits,
     )
     app.state.engine = engine
     app.state.store = store
@@ -490,6 +494,8 @@ def create_app(config_path=None, env=None):
             return action()
         except KeyError:
             raise HTTPException(status_code=404, detail="Run not found.")
+        except QuotaExceeded as error:
+            raise HTTPException(status_code=429, detail=error.message)
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error))
 
@@ -503,6 +509,16 @@ def create_app(config_path=None, env=None):
                                          dataset_id=run.dataset_id)
             except KeyError:
                 raise HTTPException(status_code=404, detail='Dataset not found.')
+            except QuotaExceeded as error:
+                # 429: the request is well formed and the caller is
+                # entitled to make it — just not right now, or not this
+                # much. The message says which and when it clears.
+                raise HTTPException(status_code=429, detail=error.message)
+
+    @app.get("/api/usage")
+    def read_usage(principal=Depends(requires("read"))):
+        with lock:
+            return quota_usage(store, principal.subject, limits)
 
     @app.get("/api/datasets")
     def list_datasets(principal=Depends(requires("read"))):
