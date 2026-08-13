@@ -81,7 +81,7 @@ class WorkerTestCase(unittest.TestCase):
         state = self.client.get(f"/api/runs/{run['id']}").json()
         self.assertEqual(state["state"], "awaiting_approval")
         succeeded = [t for t in state["tasks"] if t["state"] == "succeeded"]
-        self.assertEqual(len(succeeded), 12)
+        self.assertEqual(len(succeeded), 19)
         self.assertIsNotNone(state["report"])
 
     def test_a_worker_stops_at_the_approval_gate_and_publishes_nothing(self):
@@ -231,7 +231,7 @@ class WorkerTestCase(unittest.TestCase):
         state = self.client.get(f"/api/runs/{run['id']}").json()
         self.assertTrue(state["paused"])
         self.assertLess(
-            len([t for t in state["tasks"] if t["state"] == "succeeded"]), 12)
+            len([t for t in state["tasks"] if t["state"] == "succeeded"]), 19)
         # The lease is released, so resuming can be picked up again.
         self.assertIsNone(worker.store.get_run(run["id"])["lease_owner"])
         self.client.post(f"/api/runs/{run['id']}/resume")

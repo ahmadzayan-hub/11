@@ -13,8 +13,8 @@ gated Obsidian vault publishing, provider-neutral model gateway
 (deterministic default, optional Groq narration), mobile-first PWA,
 security hardening, CI gates. Evidence at the time of that gate: 88
 Python + 18 unit + 23 e2e tests green in CI; Lighthouse 95/100/100/100;
-clean npm audit. (Tier 2 work has since grown the suite to 240 Python +
-23 unit + 36 e2e checks.)
+clean npm audit. (Tier 2 work has since grown the suite to 253 Python +
+23 unit + 38 e2e checks.)
 
 Standing rule already enforced and carried forward: **raw datasets are
 never sent to a model provider** — only deterministic, already-verified
@@ -115,9 +115,18 @@ facts reach the narrator.
   option, key ownership, embedding/backup deletion, sync diagnostics,
   plugin release review.
 
-## Additional governed capabilities (only four — no decorative agents)
+## Additional governed capabilities (no decorative agents)
 
-1. Data Platform and Data Contract Agent
+Seven specialists were added in ADR 0009 — data contract, data quality,
+privacy, segment concentration, anomaly, sensitivity, and provenance —
+each admitted on the test that it computes something no other stage
+computes. The roster is nineteen stages plus the publish gate,
+orchestrated by **Hermes**, which analyses nothing itself. The rule was
+never "few agents"; it was "no agent that only rephrases another".
+
+The four typed contracts below remain outstanding:
+
+1. Data Platform Agent (the *Data Contract* half shipped in ADR 0009)
 2. Experiment and Causal Inference Agent
 3. Pluggable Domain Expert Agent
 4. Reliability and Incident Management Agent

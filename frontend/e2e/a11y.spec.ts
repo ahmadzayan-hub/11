@@ -44,7 +44,7 @@ test('all views and dialogs pass automated WCAG 2.2 AA checks', async ({ page })
   await expectNoViolations(page, 'runs view (setup)')
   await page.getByRole('button', { name: 'Start run' }).click()
   await expect(page.getByRole('region', { name: 'Approval required' })).toBeVisible({
-    timeout: 20_000,
+    timeout: 40_000,
   })
   await expectNoViolations(page, 'runs view (approval, charts, reports)')
 

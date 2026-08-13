@@ -16,20 +16,27 @@ list as the stopping rule).
 
 | # | Agent | Responsibility | Can fail the run |
 | --- | --- | --- | --- |
-| 1 | Orchestrator (run engine) | State machine, budgets, approval gate, recovery | — |
+| 1 | **Hermes** — Orchestrator (run engine) | Sequences every stage, enforces the state machine and the approval gate, holds the worker lease, recovers an interrupted run. **Analyses nothing itself** — it is `server/runs.py`, not a pipeline stage, so accountability for sequencing is separate from accountability for findings | — |
 | 2 | Planner Agent | Records the plan, pattern choice, and stopping rule | no |
 | 3 | Data Source Agent | CSV ingestion, size/row limits, snapshot hash | yes |
-| 4 | Data Profiling Agent | Completeness, duplicates, types, numeric detection | yes (no numeric data) |
-| 5 | Data Cleaning Agent | Trim, dedupe, coercion — row loss always reported | yes |
-| 6 | Data Preparation Agent | Measure/dimension selection, aggregates, trend | yes |
-| 7 | **Descriptive Analytics Agent** — *what happened?* | Totals, typical values, spread, period change, largest segment, unusual records | yes (no usable values) |
-| 8 | **Diagnostic Analytics Agent** — *why did it happen?* | Decomposes the change by segment (parts must sum to the whole) and measures which columns move together — association, never cause | no |
-| 9 | **Predictive Analytics Agent** — *what will happen?* | Trend fitted to history and extended, with accuracy measured by backtesting against held-out periods; declines to forecast below 4 periods | no |
-| 10 | **Prescriptive Analytics Agent** — *what should I do?* | Enumerates options the data supplies, scores each under one stated assumption, recommends one and says what would change the answer | no |
-| 11 | Visualization Expert | Truthful chart specs (zero-based axes, alt text): totals by segment, trend, who-moved-it, history-and-forecast | no |
-| 12 | Validation Expert | Reconciles totals and the change decomposition, row accounting, claim-evidence coverage, forecast accuracy declared, recommendations carry assumptions, claims free of statistical jargon; may reject, never rewrites | rejects → partially_completed |
-| 13 | Reporting Expert | One report per analytics type plus a comprehensive report embedding all four, with the claims-evidence matrix and limitations | no |
-| 14 | Knowledge Curator (publish) | Approval-gated write-back to the Obsidian vault with provenance frontmatter | approval required |
+| 4 | Data Contract Agent | Per-column type, nullability, distinctness, range, parse rate; names values that break the column they sit in | no |
+| 5 | Data Profiling Agent | Completeness, duplicates, types, numeric detection | yes (no numeric data) |
+| 6 | Data Quality Agent | Scorecard over four ratios (completeness, uniqueness, validity, consistency) with a stated formula and a grade | no |
+| 7 | Privacy Agent | Scans column names and values for personal data before anything can be published; reports, never redacts silently | no |
+| 8 | Data Cleaning Agent | Trim, dedupe, coercion — row loss always reported | yes |
+| 9 | Data Preparation Agent | Measure/dimension selection, aggregates, trend | yes |
+| 10 | Segment Concentration Agent | Share per segment, Pareto coverage, Herfindahl index — the fact a total hides | no |
+| 11 | **Descriptive Analytics Agent** — *what happened?* | Totals, typical values, spread, period change, largest segment, unusual records | yes (no usable values) |
+| 12 | **Diagnostic Analytics Agent** — *why did it happen?* | Decomposes the change by segment (parts must sum to the whole) and measures which columns move together — association, never cause | no |
+| 13 | **Predictive Analytics Agent** — *what will happen?* | Trend fitted to history and extended, with accuracy measured by backtesting against held-out periods; declines to forecast below 4 periods | no |
+| 14 | Anomaly Detection Agent | Periods that break the fitted pattern (residuals beyond two standard deviations of the residuals) — distinct from an outlier against the average |
+| 15 | **Prescriptive Analytics Agent** — *what should I do?* | Enumerates options the data supplies, scores each under one stated assumption, recommends one and says what would change the answer | no |
+| 16 | Sensitivity Agent | Re-scores every option at 5%, 10% and 20% uplift and reports whether the recommendation survives, plus the break-even ratio against the runner-up | no |
+| 17 | Visualization Expert | Truthful chart specs (zero-based axes, alt text): totals by segment, trend, who-moved-it, history-and-forecast | no |
+| 18 | Provenance Agent | Builds snapshot → calculations → claims and checks it holds both ways: no claim citing missing evidence, and uncited calculations named | no |
+| 19 | Validation Expert | Reconciles totals and the change decomposition, row accounting, claim-evidence coverage, forecast accuracy declared, recommendations carry assumptions, claims free of statistical jargon; may reject, never rewrites | rejects → partially_completed |
+| 20 | Reporting Expert | One report per analytics type plus a comprehensive report embedding all four, with the claims-evidence matrix and limitations | no |
+| 21 | Knowledge Curator (publish) | Approval-gated write-back to the Obsidian vault with provenance frontmatter | approval required |
 
 ## The four types form a ladder
 
@@ -65,6 +72,23 @@ the reader is told and what the reader can check.
   approval bound to the exact artifact hash.
 - The model narrator never contributes numbers; its text is labelled with
   its source (`model` or `deterministic`) in the report.
+
+## Why nineteen stages and not more
+
+Each stage above computes something no other stage computes, and each
+emits calculations a reader can recompute by hand from the method string
+beside them. That is the entry test, and it is the reason the list stops
+where it does: a "Insight Narrator", a "Strategy Agent", or a "Quality
+Assurance Supervisor" would consume another stage's output, rephrase it,
+and add a row to the pipeline without adding a fact to the report. The
+cost of a decorative agent is not compute — it is that every genuine
+stage becomes harder to trust when it sits in a list padded with
+theatre.
+
+Hermes is deliberately **not** one of the nineteen. It sequences, gates,
+leases and recovers; it never produces a finding. Keeping the
+orchestrator out of the analysis list is what makes "no stage may
+approve its own work" a structural fact rather than a promise.
 
 ## Not implemented (honest scope)
 

@@ -92,7 +92,7 @@ class QuotaTestCase(unittest.TestCase):
 
         # The point of the limit is to stop new work, not to strand
         # everything a tenant already started.
-        for _ in range(20):
+        for _ in range(30):
             state = self.client.post(f"/api/runs/{run['id']}/advance").json()
             if state["state"] == "awaiting_approval":
                 break

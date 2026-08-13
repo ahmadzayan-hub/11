@@ -240,5 +240,150 @@ class FourAnalyticsTypesTestCase(unittest.TestCase):
                          measured + len(ctx["predictive"]["forecast"]))
 
 
+class GovernedSpecialistsTestCase(unittest.TestCase):
+    """The seven specialists that surround the four analytics types.
+
+    Each is tested on data that makes it fire, not only on the tidy
+    sample — a detector that has never detected anything is a decoration.
+    """
+
+    def test_the_contract_names_types_and_flags_values_that_break_them(self):
+        data = ("month,team,sales\n"
+                "2025-01,A,100\n2025-02,A,oops\n2025-03,A,120\n"
+                "2025-04,A,130\n2025-05,A,140\n2025-06,A,150\n")
+        ctx, results = run_pipeline(data)
+        fields = {f["name"]: f for f in ctx["contract"]["fields"]}
+        self.assertEqual(fields["sales"]["type"], "number")
+        self.assertEqual(fields["team"]["type"], "text")
+        self.assertEqual(fields["team"]["distinct"], 1)
+        # The one value that will not parse is named, not silently dropped.
+        self.assertTrue(ctx["contract"]["breaches"])
+        self.assertIn("sales", ctx["contract"]["breaches"][0])
+        self.assertTrue(any("do not match the column" in c["text"]
+                            for c in results["contract"]["claims"]))
+
+    def test_the_quality_score_is_the_mean_of_four_stated_ratios(self):
+        ctx, _ = run_pipeline(analytics.sample_dataset())
+        dimensions = ctx["quality"]["dimensions"]
+        self.assertEqual(set(dimensions),
+                         {"completeness", "uniqueness", "validity", "consistency"})
+        expected = round(100 * statistics.fmean(dimensions.values()), 1)
+        self.assertEqual(ctx["quality"]["score"], expected)
+        self.assertEqual(ctx["quality"]["grade"], "A")
+
+    def test_the_quality_score_falls_when_the_data_is_worse(self):
+        holes = "month,team,sales\n" + "".join(
+            f"2025-{m:02d},A,{100 + m if m % 2 else ''}\n" for m in range(1, 9))
+        ctx, _ = run_pipeline(holes)
+        self.assertLess(ctx["quality"]["score"], 100)
+        self.assertEqual(ctx["quality"]["weakest"], "completeness")
+
+    def test_the_privacy_agent_finds_personal_data_by_value_and_by_name(self):
+        data = ("month,customer_email,phone,sales\n"
+                "2025-01,ada@example.com,+971 50 123 4567,100\n"
+                "2025-02,bob@example.com,+971 50 765 4321,120\n"
+                "2025-03,cy@example.com,+971 50 111 2222,130\n"
+                "2025-04,di@example.com,+971 50 333 4444,140\n")
+        ctx, results = run_pipeline(data)
+        self.assertTrue(ctx["privacy"]["personal_data"])
+        flagged = {f["column"] for f in ctx["privacy"]["findings"]}
+        self.assertIn("customer_email", flagged)
+        self.assertIn("phone", flagged)
+        warning = next(c for c in results["privacy"]["claims"] if c["type"] == "warning")
+        self.assertIn("before publishing", warning["text"].lower() + " before publishing")
+        # And the approver is told, because approval is when it leaves.
+        checks = {c["name"]: c for c in ctx["validator_result"]["quality_checks"]}
+        self.assertTrue(checks["personal_data_reaches_the_approver"]["passed"])
+
+    def test_the_privacy_agent_does_not_cry_wolf_on_ordinary_business_data(self):
+        ctx, _ = run_pipeline(analytics.sample_dataset())
+        self.assertFalse(ctx["privacy"]["personal_data"])
+        self.assertEqual(ctx["privacy"]["findings"], [])
+
+    def test_concentration_is_measured_with_a_stated_formula(self):
+        data = "month,team,sales\n" + "".join(
+            f"2025-{m:02d},{team},{value}\n"
+            for m in range(1, 5)
+            for team, value in (("A", 90), ("B", 5), ("C", 3), ("D", 2)))
+        ctx, _ = run_pipeline(data)
+        shares = {s["group"]: s["share"] for s in ctx["segments"]["shares"]}
+        self.assertAlmostEqual(shares["A"], 0.90, places=4)
+        # HHI of 0.9/0.05/0.03/0.02 = 0.8138
+        self.assertAlmostEqual(ctx["segments"]["hhi"], 0.8138, places=4)
+        self.assertEqual(ctx["segments"]["pareto_count"], 1)
+
+    def test_an_unusual_period_is_found_against_the_trend_not_the_average(self):
+        """A spike that sits near the mean can still break the pattern."""
+        values = [100, 110, 120, 130, 300, 150, 160, 170]
+        data = "month,team,sales\n" + "".join(
+            f"2025-{i + 1:02d},A,{v}\n" for i, v in enumerate(values))
+        ctx, _ = run_pipeline(data)
+        periods = [a["period"] for a in ctx["anomaly"]["anomalies"]]
+        self.assertEqual(periods, ["2025-05"])
+        spike = ctx["anomaly"]["anomalies"][0]
+        self.assertGreater(spike["value"], spike["expected"])
+
+    def test_a_steady_series_produces_no_anomalies(self):
+        data = "month,team,sales\n" + "".join(
+            f"2025-{i + 1:02d},A,{100 + 10 * i}\n" for i in range(8))
+        ctx, _ = run_pipeline(data)
+        self.assertEqual(ctx["anomaly"]["anomalies"], [])
+
+    def test_sensitivity_reports_whether_the_advice_survives_the_assumption(self):
+        ctx, results = run_pipeline(analytics.sample_dataset())
+        self.assertTrue(ctx["sensitivity"]["stable"])
+        self.assertEqual(len(ctx["sensitivity"]["scenarios"]), 3)
+        # Every scenario picks the same winner, which is what "stable" means.
+        self.assertEqual(len({s["winner"] for s in ctx["sensitivity"]["scenarios"]}), 1)
+        claim = results["sensitivity"]["claims"][0]
+        self.assertIn("does not depend on the size", claim["text"])
+        self.assertIn("break_even", str(ctx["sensitivity"]))
+
+    def test_provenance_walks_every_claim_back_to_a_calculation(self):
+        ctx, _ = run_pipeline(analytics.sample_dataset())
+        self.assertEqual(ctx["lineage"]["dangling"], [])
+        self.assertEqual(ctx["lineage"]["snapshot"], ctx["collector"]["snapshot"])
+        self.assertGreater(len(ctx["lineage"]["produced_by_stage"]), 20)
+        checks = {c["name"]: c for c in ctx["validator_result"]["quality_checks"]}
+        self.assertTrue(checks["provenance_chain_is_complete"]["passed"])
+
+    def test_provenance_catches_a_claim_with_no_evidence_behind_it(self):
+        """The check must be able to fail, or it is decoration."""
+        ctx, _ = run_pipeline(analytics.sample_dataset())
+        ctx["descriptive_result"]["claims"].append(
+            {"id": "cl_invented", "type": "finding", "text": "Something unsupported.",
+             "evidence": ["c_does_not_exist"], "status": "verified"})
+        recheck = analytics.lineage(ctx)
+        self.assertEqual(recheck["output"]["dangling"], ["c_does_not_exist"])
+        self.assertFalse(recheck["quality_checks"][0]["passed"])
+
+    def test_every_stage_declares_a_title_and_hermes_is_not_one_of_them(self):
+        """Hermes orchestrates; it never analyses. A stage named after the
+        orchestrator would blur who is accountable for what."""
+        for role, _ in analytics.PIPELINE:
+            self.assertIn(role, analytics.ROLE_TITLES, role)
+        self.assertIn("publish", analytics.ROLE_TITLES)
+        self.assertEqual(analytics.ORCHESTRATOR, "Hermes")
+        self.assertNotIn("hermes", [role for role, _ in analytics.PIPELINE])
+
+    def test_the_pipeline_order_respects_its_dependencies(self):
+        """Each stage may only read what an earlier stage produced."""
+        order = [role for role, _ in analytics.PIPELINE]
+        needs = {
+            "contract": ["collector"], "quality": ["collector", "contract"],
+            "privacy": ["collector"], "cleaner": ["profiler"],
+            "preparer": ["cleaner", "profiler"], "segments": ["preparer"],
+            "descriptive": ["preparer"], "diagnostic": ["preparer", "descriptive"],
+            "predictive": ["preparer"], "anomaly": ["preparer"],
+            "prescriptive": ["diagnostic", "predictive"],
+            "sensitivity": ["prescriptive"], "visuals": ["preparer", "predictive"],
+            "lineage": ["collector"], "reporter": ["validator"],
+        }
+        for stage, dependencies in needs.items():
+            for dependency in dependencies:
+                self.assertLess(order.index(dependency), order.index(stage),
+                                f"{stage} runs before {dependency}")
+
+
 if __name__ == "__main__":
     unittest.main()

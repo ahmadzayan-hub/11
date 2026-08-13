@@ -7,7 +7,7 @@ test('the analytics-type tabs follow the keyboard tabs pattern', async ({ page }
   await openTab(page, /^Runs/)
   await page.getByRole('button', { name: 'Start run' }).click()
   await expect(page.getByRole('region', { name: 'Approval required' })).toBeVisible({
-    timeout: 20_000,
+    timeout: 40_000,
   })
 
   const tab = (name: RegExp) => page.getByRole('tab', { name })

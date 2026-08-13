@@ -18,6 +18,7 @@ Expert can independently verify every material statement.
 import csv
 import hashlib
 import io
+import re
 import statistics
 
 MAX_ROWS = 50_000
@@ -556,6 +557,492 @@ def diagnostic(ctx):
     )
 
 
+# ---------------------------------------------------------------------------
+# Governed specialists added alongside the four analytics types. Each does
+# arithmetic or pattern work of its own — none exists to relay another
+# stage's output in different words.
+# ---------------------------------------------------------------------------
+
+# Anything matching these is treated as personal data leaving the building
+# if the report is published. Deliberately conservative: a false positive
+# costs a sentence in the report, a false negative costs a disclosure.
+PII_PATTERNS = [
+    ("email address", re.compile(r"[\w.+-]+@[\w-]+\.[\w.]{2,}")),
+    ("phone number", re.compile(r"(?<!\d)(?:\+\d{1,3}[ -]?)?(?:\d[ -]?){9,14}\d(?!\d)")),
+    ("long identifier", re.compile(r"(?<!\d)\d{12,19}(?!\d)")),
+]
+PII_COLUMN_WORDS = ("email", "e-mail", "phone", "mobile", "ssn", "nin",
+                    "passport", "iban", "card", "dob", "birth", "address",
+                    "national_id", "emirates_id")
+
+
+def contract(ctx):
+    """Data Contract Agent — what shape is this data, and does it hold?
+
+    Infers a per-column contract from the snapshot: type, nullability,
+    distinctness, and range for numbers. Nothing downstream has to guess,
+    and a later upload of the same name can be compared against it.
+    """
+    rows, columns = ctx["collector"]["rows"], ctx["collector"]["columns"]
+    fields, breaches = [], []
+    for column in columns:
+        values = [(r.get(column) or "").strip() for r in rows]
+        present = [v for v in values if v]
+        numbers = [_to_number(v) for v in present]
+        numbers = [n for n in numbers if n is not None]
+        parse_rate = len(numbers) / len(present) if present else 0.0
+        # A column where most values are numbers IS a numeric column with
+        # dirty values. Calling it "text" at 83% would hide precisely the
+        # problem this stage exists to report. The 0.9 line is kept as a
+        # separate flag, because that is the bar the analysis stages use.
+        numeric = bool(present) and parse_rate > 0.5
+        field = {
+            "name": column,
+            "type": "number" if numeric else "text",
+            "parse_rate": round(parse_rate, 4),
+            "usable_as_measure": parse_rate >= 0.9,
+            "nullable": len(present) < len(values),
+            "missing": len(values) - len(present),
+            "distinct": len(set(present)),
+        }
+        if numeric and numbers:
+            field["min"] = round(min(numbers), 4)
+            field["max"] = round(max(numbers), 4)
+        fields.append(field)
+        # A column that is mostly numbers but not entirely is the classic
+        # source of silent wrong totals, so it is named here rather than
+        # discovered later.
+        if numeric and len(numbers) < len(present):
+            breaches.append(
+                f"{column}: {len(present) - len(numbers)} of {len(present)} value(s) "
+                "will not parse as a number"
+                + ("" if field["usable_as_measure"] else
+                   f", leaving only {parse_rate:.0%} usable — below the 90% needed "
+                   "to analyse it as a measure"))
+
+    calcs = [{"id": "c_contract_fields", "name": "columns_under_contract",
+              "value": len(fields), "method": "one contract row per column"}]
+    claims = [{"id": "cl_contract", "type": "fact",
+               "text": f"The data has {len(fields)} columns under contract: "
+                       + ", ".join(f"{f['name']} ({f['type']})" for f in fields[:6])
+                       + ("…" if len(fields) > 6 else "") + ".",
+               "evidence": ["c_contract_fields"], "status": "verified"}]
+    if breaches:
+        claims.append({"id": "cl_contract_breach", "type": "finding",
+                       "text": "Some values do not match the column they sit in: "
+                               + "; ".join(breaches[:3])
+                               + ". Those cells are treated as missing, not guessed.",
+                       "evidence": ["c_contract_fields"], "status": "verified"})
+    return _result(
+        "succeeded",
+        f"Contract inferred for {len(fields)} columns"
+        + (f"; {len(breaches)} column(s) contain values that break it." if breaches
+           else "; every value matches its column."),
+        output={"fields": fields, "breaches": breaches},
+        calculations=calcs, claims=claims,
+        checks=[{"name": "contract_has_a_measure",
+                 "passed": any(f["type"] == "number" for f in fields),
+                 "detail": "At least one numeric column is needed to measure anything."}],
+    )
+
+
+def quality(ctx):
+    """Data Quality Agent — a scorecard, not a vibe.
+
+    Four standard dimensions, each a ratio anybody can recompute, and one
+    overall score that is their mean. A number with a stated formula can
+    be argued with; a traffic light cannot.
+    """
+    rows, columns = ctx["collector"]["rows"], ctx["collector"]["columns"]
+    fields = ctx["contract"]["fields"]
+    cells = len(rows) * max(1, len(columns))
+
+    filled = sum(len(rows) - f["missing"] for f in fields)
+    completeness = filled / cells if cells else 0.0
+
+    seen, duplicate_rows = set(), 0
+    for row in rows:
+        key = tuple(sorted(row.items()))
+        duplicate_rows += key in seen
+        seen.add(key)
+    uniqueness = 1 - (duplicate_rows / len(rows)) if rows else 0.0
+
+    numeric_fields = [f for f in fields if f["type"] == "number"]
+    parseable = 0
+    numeric_present = 0
+    for field in numeric_fields:
+        for row in rows:
+            value = (row.get(field["name"]) or "").strip()
+            if not value:
+                continue
+            numeric_present += 1
+            parseable += _to_number(value) is not None
+    validity = parseable / numeric_present if numeric_present else 1.0
+
+    consistent = sum(1 for r in rows if len(r) == len(columns))
+    consistency = consistent / len(rows) if rows else 0.0
+
+    dimensions = {"completeness": completeness, "uniqueness": uniqueness,
+                  "validity": validity, "consistency": consistency}
+    score = round(100 * statistics.fmean(dimensions.values()), 1)
+    grade = ("A" if score >= 95 else "B" if score >= 85 else
+             "C" if score >= 70 else "D")
+
+    calcs = [{"id": f"c_dq_{name}", "name": f"{name}_ratio", "value": round(value, 4),
+              "method": method}
+             for (name, value), method in zip(dimensions.items(), [
+                 "filled cells / total cells",
+                 "1 − duplicate rows / total rows",
+                 "numeric cells that parse / numeric cells present",
+                 "rows with every column present / total rows"])]
+    calcs.append({"id": "c_dq_score", "name": "quality_score", "value": score,
+                  "method": "mean of the four dimension ratios × 100"})
+    weakest = min(dimensions, key=dimensions.get)
+    # Naming a "weakest" dimension that is itself perfect reads as a fault
+    # where there is none.
+    flawless = dimensions[weakest] >= 1.0
+    verdict = ("every dimension is perfect"
+               if flawless else
+               f"weakest dimension is {weakest} at {dimensions[weakest]:.0%}")
+    return _result(
+        "succeeded",
+        f"Data quality {score}/100 (grade {grade}); {verdict}.",
+        output={"dimensions": {k: round(v, 4) for k, v in dimensions.items()},
+                "score": score, "grade": grade, "weakest": weakest},
+        calculations=calcs,
+        claims=[{"id": "cl_dq", "type": "calculation",
+                 "text": f"Data quality scores {score} out of 100 (grade {grade}). "
+                         + ("Completeness, uniqueness, validity and consistency are "
+                            "all perfect." if flawless else
+                            f"The weakest part is {weakest}, at "
+                            f"{dimensions[weakest]:.0%}."),
+                 "evidence": ["c_dq_score", f"c_dq_{weakest}"], "status": "verified"}],
+        checks=[{"name": "quality_above_floor", "passed": score >= 50,
+                 "detail": f"Score {score}/100. Below 50 the findings would rest on "
+                           "data too broken to carry them."}],
+    )
+
+
+def privacy(ctx):
+    """Privacy Agent — does this dataset carry personal data?
+
+    Runs before anything is published, because the vault write is the
+    moment data leaves the analyst's hands. It never redacts silently: it
+    reports what it found and where, and the human decides at the gate.
+    """
+    rows, columns = ctx["collector"]["rows"], ctx["collector"]["columns"]
+    findings = []
+    for column in columns:
+        lowered = column.lower()
+        named = [word for word in PII_COLUMN_WORDS if word in lowered]
+        hits = {}
+        for row in rows[:2000]:          # bounded scan; enough to detect a pattern
+            value = (row.get(column) or "").strip()
+            if not value:
+                continue
+            for label, pattern in PII_PATTERNS:
+                if pattern.search(value):
+                    hits[label] = hits.get(label, 0) + 1
+        if named or hits:
+            findings.append({
+                "column": column,
+                "by_name": named,
+                "by_value": [{"kind": k, "rows": v} for k, v in sorted(hits.items())],
+            })
+
+    calcs = [{"id": "c_pii_columns", "name": "columns_with_personal_data",
+              "value": len(findings),
+              "method": "columns matching a personal-data name or value pattern"}]
+    claims = []
+    if findings:
+        summary = "; ".join(
+            f"{f['column']} (" + ", ".join(
+                [f"named like {'/'.join(f['by_name'])}"] if f["by_name"] else []
+                + [f"{h['rows']} {h['kind']}(s)" for h in f["by_value"]]) + ")"
+            for f in findings[:3])
+        claims.append({
+            "id": "cl_pii", "type": "warning",
+            "text": f"This dataset appears to contain personal data in "
+                    f"{len(findings)} column(s): {summary}. Publishing writes the "
+                    "report to the vault — check that it is allowed to leave here.",
+            "evidence": ["c_pii_columns"], "status": "verified"})
+    else:
+        claims.append({
+            "id": "cl_pii_clear", "type": "fact",
+            "text": "No personal data was detected in the dataset by name or by "
+                    "value pattern. Detection is pattern-based, so it is a strong "
+                    "hint rather than a guarantee.",
+            "evidence": ["c_pii_columns"], "status": "verified"})
+    return _result(
+        "succeeded",
+        (f"Personal data detected in {len(findings)} column(s) — review before "
+         "publishing." if findings else
+         "No personal data detected by name or value pattern."),
+        output={"findings": findings, "personal_data": bool(findings)},
+        calculations=calcs, claims=claims,
+        checks=[{"name": "personal_data_declared", "passed": True,
+                 "detail": (f"{len(findings)} column(s) flagged and reported to the "
+                            "approver." if findings else
+                            "Nothing matched; the scan itself is recorded.")}],
+    )
+
+
+def segments(ctx):
+    """Segment Agent — how concentrated is this business?
+
+    Share, Pareto coverage, and a Herfindahl index, all from the prepared
+    aggregates. Concentration is the fact a leader most often needs and
+    a total most often hides.
+    """
+    prep = ctx["preparer"]
+    groups, total = prep["groups"], prep["total"]
+    if not groups or not total:
+        return _result(
+            "succeeded",
+            "No grouping column, so concentration cannot be measured.",
+            output={"shares": [], "hhi": None, "pareto_count": None},
+            calculations=[{"id": "c_seg_none", "name": "segments", "value": 0,
+                           "method": "no non-numeric column to group by"}],
+            claims=[{"id": "cl_seg_none", "type": "limitation",
+                     "text": "The data has no grouping column, so no segment "
+                             "concentration can be reported.",
+                     "evidence": ["c_seg_none"], "status": "verified"}])
+
+    ordered = sorted(groups.items(), key=lambda kv: -kv[1])
+    shares = [{"group": name, "value": round(value, 2),
+               "share": round(value / total, 4)} for name, value in ordered]
+    hhi = round(sum(s["share"] ** 2 for s in shares), 4)
+    running, pareto = 0.0, 0
+    for share in shares:
+        running += share["share"]
+        pareto += 1
+        if running >= 0.8:
+            break
+    calcs = [
+        {"id": "c_seg_count", "name": "segments", "value": len(shares),
+         "method": f"distinct values of {prep['group_col']}"},
+        {"id": "c_seg_hhi", "name": "concentration_index", "value": hhi,
+         "method": "sum of squared shares (1.0 = one segment holds everything)"},
+        {"id": "c_seg_pareto", "name": "segments_for_80_percent", "value": pareto,
+         "method": "segments needed, largest first, to reach 80% of the total"},
+    ]
+    spread = ("very concentrated" if hhi >= 0.5 else
+              "concentrated" if hhi >= 0.25 else "spread out")
+    # With two or three segments "N of them make 80%" is arithmetic, not
+    # insight; the share of the largest is the fact worth stating.
+    headline = (f"{len(shares)} segments; {pareto} of them make up 80% of the total "
+                f"({spread})."
+                if len(shares) > 3 else
+                f"{len(shares)} segments, largest at {shares[0]['share']:.0%} "
+                f"of the total ({spread}).")
+    return _result(
+        "succeeded", headline,
+        output={"shares": shares, "hhi": hhi, "pareto_count": pareto},
+        calculations=calcs,
+        claims=[{"id": "cl_seg", "type": "calculation",
+                 "text": (f"{pareto} of {len(shares)} {prep['group_col']}s account for "
+                          f"80% of {prep['measure']} — the business is {spread}."
+                          if len(shares) > 3 else
+                          f"The largest of {len(shares)} {prep['group_col']}s holds "
+                          f"{shares[0]['share']:.0%} of {prep['measure']} — the "
+                          f"business is {spread}."),
+                 "evidence": ["c_seg_pareto", "c_seg_hhi"], "status": "verified"}],
+    )
+
+
+def anomaly(ctx):
+    """Anomaly Agent — which periods do not fit the pattern?
+
+    Residuals from the fitted trend, flagged beyond two standard
+    deviations of those residuals. Distinct from the descriptive outlier
+    count, which compares single records to the average and cannot see
+    that a period is unusual *given the trend*.
+    """
+    prep = ctx["preparer"]
+    labels = list(prep["trend"].keys())
+    series = list(prep["trend"].values())
+    if len(series) < 4:
+        return _result(
+            "succeeded",
+            f"Only {len(series)} period(s): too few to tell an unusual period "
+            "from ordinary variation.",
+            output={"anomalies": [], "residual_spread": None},
+            calculations=[{"id": "c_anom_periods", "name": "periods_available",
+                           "value": len(series), "method": "distinct periods"}],
+            claims=[{"id": "cl_anom_none", "type": "limitation",
+                     "text": f"With {len(series)} period(s) there is no basis for "
+                             "calling any of them unusual.",
+                     "evidence": ["c_anom_periods"], "status": "verified"}])
+
+    slope, intercept, _ = _linear_fit(series)
+    residuals = [value - (intercept + slope * index)
+                 for index, value in enumerate(series)]
+    spread = statistics.pstdev(residuals) if len(residuals) > 1 else 0.0
+    anomalies = [
+        {"period": labels[index], "value": round(series[index], 2),
+         "expected": round(intercept + slope * index, 2),
+         "gap": round(residual, 2)}
+        for index, residual in enumerate(residuals)
+        if spread and abs(residual) > 2 * spread
+    ]
+    calcs = [{"id": "c_anom_spread", "name": "typical_gap_from_trend",
+              "value": round(spread, 2),
+              "method": "standard deviation of the gaps between actual and trend"}]
+    for index, item in enumerate(anomalies[:5]):
+        calcs.append({"id": f"c_anom_{index}", "name": f"gap_{item['period']}",
+                      "value": item["gap"],
+                      "method": f"{item['period']} actual minus its trend value"})
+    claims = []
+    if anomalies:
+        worst = max(anomalies, key=lambda a: abs(a["gap"]))
+        claims.append({
+            "id": "cl_anom", "type": "finding",
+            "text": f"{len(anomalies)} period(s) sit well away from the pattern. "
+                    f"The largest is {worst['period']}, which came in "
+                    f"{abs(worst['gap']):,.0f} {'above' if worst['gap'] > 0 else 'below'} "
+                    "what the trend would give — worth asking what happened then.",
+            "evidence": ["c_anom_spread", "c_anom_0"], "status": "verified"})
+    else:
+        claims.append({
+            "id": "cl_anom_clear", "type": "fact",
+            "text": "Every period sits close to the overall pattern; nothing stands "
+                    "out as unusual.",
+            "evidence": ["c_anom_spread"], "status": "verified"})
+    return _result(
+        "succeeded",
+        (f"{len(anomalies)} unusual period(s) against the trend."
+         if anomalies else "No period departs from the trend."),
+        output={"anomalies": anomalies, "residual_spread": round(spread, 2)},
+        calculations=calcs, claims=claims,
+    )
+
+
+def sensitivity(ctx):
+    """Sensitivity Agent — would the recommendation survive a different
+    assumption?
+
+    The prescriptive ranking rests on one stated improvement assumption.
+    This re-scores every option across a range of it and reports whether
+    the winner changes, plus the break-even point against the runner-up.
+    A recommendation that flips under a small change is a coin toss with
+    a spreadsheet attached, and the reader deserves to know which it is.
+    """
+    options = ctx["prescriptive"].get("options") or []
+    if len(options) < 2:
+        return _result(
+            "succeeded", "Fewer than two options, so there is nothing to test.",
+            output={"stable": None, "scenarios": [], "break_even": None},
+            calculations=[{"id": "c_sens_none", "name": "options_tested", "value":
+                           len(options), "method": "options from the prescriptive stage"}],
+            claims=[{"id": "cl_sens_none", "type": "limitation",
+                     "text": "With fewer than two options there is no ranking to test "
+                             "for sensitivity.",
+                     "evidence": ["c_sens_none"], "status": "verified"}])
+
+    # Every option is scored as base_value × uplift, so the ranking is
+    # scale-invariant in the uplift — the honest way to say that is to
+    # show it rather than assert it.
+    winner = options[0]
+    runner_up = options[1]
+    scenarios = []
+    for uplift in (0.05, PLANNING_UPLIFT, 0.20):
+        scored = sorted(
+            ({"key": o["key"], "title": o["title"],
+              "gain": round(o["base_value"] * uplift, 2)} for o in options),
+            key=lambda o: -o["gain"])
+        scenarios.append({"uplift": uplift, "winner": scored[0]["key"],
+                          "gain": scored[0]["gain"]})
+    stable = len({s["winner"] for s in scenarios}) == 1
+
+    break_even = None
+    if runner_up["base_value"]:
+        # How much better the runner-up's uplift would have to be for it
+        # to win, holding the leader's assumption fixed.
+        break_even = round(winner["base_value"] / runner_up["base_value"], 3)
+
+    calcs = [{"id": "c_sens_stable", "name": "winner_unchanged_across_scenarios",
+              "value": 1 if stable else 0,
+              "method": "recommended option compared at 5%, 10% and 20% uplift"}]
+    if break_even is not None:
+        calcs.append({"id": "c_sens_breakeven", "name": "break_even_ratio",
+                      "value": break_even,
+                      "method": f"“{winner['target']}” current value ÷ "
+                                f"“{runner_up['target']}” current value"})
+    claims = [{
+        "id": "cl_sens", "type": "finding",
+        "text": (
+            f"The recommendation does not depend on the size of the improvement "
+            f"assumed: “{winner['title']}” wins at 5%, 10% and 20% alike."
+            if stable else
+            "The recommendation changes with the size of the improvement assumed, "
+            "so it should be treated as a close call rather than a conclusion.")
+        + (f" It would take a {break_even:.1f}× better result in "
+           f"“{runner_up['target']}” than in “{winner['target']}” to change the answer."
+           if break_even else ""),
+        "evidence": ["c_sens_stable"] + (["c_sens_breakeven"] if break_even else []),
+        "status": "verified"}]
+    return _result(
+        "succeeded",
+        ("The recommendation holds across every improvement assumption tested."
+         if stable else
+         "The recommendation depends on the improvement assumed — treat it as a "
+         "close call."),
+        output={"stable": stable, "scenarios": scenarios, "break_even": break_even},
+        calculations=calcs, claims=claims,
+    )
+
+
+def lineage(ctx):
+    """Provenance Agent — can every claim be walked back to the data?
+
+    Builds the chain snapshot → calculations → claims and checks that it
+    holds in both directions: no claim citing evidence that does not
+    exist, and no calculation nobody used. The validator asserts the
+    first; this stage makes the whole chain visible, which is what an
+    auditor actually asks for.
+    """
+    produced, cited = {}, set()
+    for stage in EVIDENCE_STAGES:
+        result = ctx.get(stage + "_result", {})
+        for calc in result.get("calculations", []):
+            produced[calc["id"]] = stage
+        for claim in result.get("claims", []):
+            cited.update(claim.get("evidence", []))
+
+    dangling = sorted(cited - set(produced))
+    unused = sorted(set(produced) - cited)
+    claim_count = sum(len(ctx.get(s + "_result", {}).get("claims", []))
+                      for s in EVIDENCE_STAGES)
+    calcs = [
+        {"id": "c_lin_calcs", "name": "calculations_produced", "value": len(produced),
+         "method": "calculations emitted across every evidence-producing stage"},
+        {"id": "c_lin_claims", "name": "claims_made", "value": claim_count,
+         "method": "claims emitted across every evidence-producing stage"},
+        {"id": "c_lin_dangling", "name": "claims_citing_missing_evidence",
+         "value": len(dangling),
+         "method": "evidence ids cited by a claim but produced by no stage"},
+    ]
+    return _result(
+        "succeeded",
+        f"Provenance chain built: {len(produced)} calculations support "
+        f"{claim_count} claims, all rooted in snapshot "
+        f"sha256:{ctx['collector']['snapshot']}."
+        + (f" {len(unused)} calculation(s) went uncited." if unused else ""),
+        output={"produced_by_stage": produced, "dangling": dangling,
+                "unused": unused, "snapshot": ctx["collector"]["snapshot"]},
+        calculations=calcs,
+        claims=[{"id": "cl_lineage", "type": "fact",
+                 "text": f"Every figure in this report traces back to snapshot "
+                         f"sha256:{ctx['collector']['snapshot']} through "
+                         f"{len(produced)} recorded calculations.",
+                 "evidence": ["c_lin_calcs", "c_lin_dangling"], "status": "verified"}],
+        checks=[{"name": "no_claim_cites_missing_evidence", "passed": not dangling,
+                 "detail": ("Every cited calculation exists."
+                            if not dangling else
+                            "Missing evidence: " + ", ".join(dangling))}],
+    )
+
+
 def visuals(ctx):
     prep = ctx["preparer"]
     charts = []
@@ -973,6 +1460,28 @@ def validator(ctx):
                    "detail": (f"{len(recommendations)} recommendation(s), "
                               f"{len(assumptions)} stated assumption(s).")})
 
+    # Personal data must reach the approver, because approval is the moment
+    # the report leaves the analyst's hands.
+    privacy_result = ctx.get("privacy", {})
+    if privacy_result.get("personal_data"):
+        surfaced = any(cl["type"] == "warning" for cl in all_claims)
+        checks.append({"name": "personal_data_reaches_the_approver",
+                       "passed": surfaced,
+                       "detail": (f"{len(privacy_result['findings'])} column(s) with "
+                                  "personal data are declared in the report."
+                                  if surfaced else
+                                  "Personal data was detected but no warning reached "
+                                  "the report.")})
+
+    # Provenance must hold in the direction that matters: no claim may cite
+    # evidence that does not exist.
+    dangling = ctx.get("lineage", {}).get("dangling")
+    if dangling is not None:
+        checks.append({"name": "provenance_chain_is_complete", "passed": not dangling,
+                       "detail": ("Every claim walks back to a recorded calculation."
+                                  if not dangling else
+                                  "Claims cite missing evidence: " + ", ".join(dangling))})
+
     # Business language is a requirement, so it is checked — on the
     # headlines as well as the claims, since the headline is the line an
     # executive actually reads.
@@ -1031,8 +1540,15 @@ def reporter(ctx):
     }
     for name, question in ANALYTICS_TYPES:
         lines.append(f"| {name.capitalize()} | {question} | {headlines[name]} |")
-    lines += ["", "## Data quality",
+    lines += ["", "## Data quality, privacy and provenance",
+              ctx["quality_result"]["summary"],
+              ctx["contract_result"]["summary"],
               ctx["profiler_result"]["summary"], ctx["cleaner_result"]["summary"],
+              ctx["privacy_result"]["summary"],
+              ctx["lineage_result"]["summary"],
+              ctx["segments_result"]["summary"],
+              ctx["anomaly_result"]["summary"],
+              ctx["sensitivity_result"]["summary"],
               "", "## Key metrics",
               "Every figure produced by the run, in one place. Each per-type "
               "section below repeats the figures it used.",
@@ -1089,40 +1605,63 @@ def reporter(ctx):
     )
 
 
+# Hermes sequences these. Order is a dependency order, not a preference:
+# every stage consumes only what the stages above it have produced.
 PIPELINE = [
     ("planner", planner),
     ("collector", collector),
+    ("contract", contract),
     ("profiler", profiler),
+    ("quality", quality),
+    ("privacy", privacy),
     ("cleaner", cleaner),
     ("preparer", preparer),
+    ("segments", segments),
     # The maturity ladder: each type consumes the ones before it.
     ("descriptive", descriptive),
     ("diagnostic", diagnostic),
     ("predictive", predictive),
+    ("anomaly", anomaly),
     ("prescriptive", prescriptive),
+    ("sensitivity", sensitivity),
     ("visuals", visuals),
+    ("lineage", lineage),
     ("validator", validator),
     ("reporter", reporter),
 ]
 
 # Stages whose claims and calculations the validator audits.
-EVIDENCE_STAGES = ("collector", "profiler", "cleaner", "preparer",
-                   "descriptive", "diagnostic", "predictive", "prescriptive")
+EVIDENCE_STAGES = ("collector", "contract", "profiler", "quality", "privacy",
+                   "cleaner", "preparer", "segments", "descriptive", "diagnostic",
+                   "predictive", "anomaly", "prescriptive", "sensitivity", "lineage")
 
 # Stages that receive the model gateway (narration of verified facts only).
 NARRATED_STAGES = ("prescriptive",)
 
+# The orchestrator has a name because a system with this many specialists
+# needs one thing that is accountable for sequencing, the approval gate,
+# and recovery. Hermes is the run engine (server/runs.py), not a stage:
+# it never analyses anything itself.
+ORCHESTRATOR = "Hermes"
+
 ROLE_TITLES = {
     "planner": "Planner Agent",
     "collector": "Data Source Agent",
+    "contract": "Data Contract Agent",
     "profiler": "Data Profiling Agent",
+    "quality": "Data Quality Agent",
+    "privacy": "Privacy Agent",
     "cleaner": "Data Cleaning Agent",
     "preparer": "Data Preparation Agent",
+    "segments": "Segment Concentration Agent",
     "descriptive": "Descriptive Analytics Agent — what happened?",
     "diagnostic": "Diagnostic Analytics Agent — why did it happen?",
     "predictive": "Predictive Analytics Agent — what will happen?",
+    "anomaly": "Anomaly Detection Agent",
     "prescriptive": "Prescriptive Analytics Agent — what should I do?",
+    "sensitivity": "Sensitivity Agent — would the advice survive a different assumption?",
     "visuals": "Visualization Expert",
+    "lineage": "Provenance Agent",
     "validator": "Validation Expert",
     "reporter": "Reporting Expert",
     "publish": "Knowledge Curator (vault publish)",

@@ -11,12 +11,12 @@ test('analytics run: goal to approved, published, evidence-backed report', async
 
   // The pipeline advances stage by stage until the approval gate.
   const approval = page.getByRole('region', { name: 'Approval required' })
-  await expect(approval).toBeVisible({ timeout: 20_000 })
+  await expect(approval).toBeVisible({ timeout: 40_000 })
   await expect(approval).toContainText('high')
   await expect(page.getByText('state: awaiting approval')).toBeVisible()
 
   // Every specialist succeeded and the evidence is visible.
-  await expect(page.locator('.runtask--succeeded')).toHaveCount(12)
+  await expect(page.locator('.runtask--succeeded')).toHaveCount(19)
   await expect(
     page.locator('.runtasks').getByText('All validation checks passed', { exact: false }),
   ).toBeVisible()
@@ -65,7 +65,7 @@ test('a CSV file can be uploaded and is analyzed', async ({ page }) => {
   await page.getByRole('button', { name: 'Start run' }).click()
 
   await expect(page.getByRole('region', { name: 'Approval required' })).toBeVisible({
-    timeout: 20_000,
+    timeout: 40_000,
   })
   // Figures come from the uploaded file, not the bundled sample.
   await expect(page.locator('.runreport--full')).toContainText('total_sales | 400.0')

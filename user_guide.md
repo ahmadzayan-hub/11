@@ -89,9 +89,13 @@ Open **Runs** to turn a goal into a governed analytics pipeline. Choose
 the bundled sample sales dataset, upload a CSV file, or paste one (header
 row first, up to 2 MB / 50,000 rows), then start the run. Uploading the
 same file twice stores it once, and a previous upload can be re-analysed
-without sending it again. Specialist agents execute in order — planning,
-ingestion, profiling, cleaning, preparation, the four analytics agents,
-visualization, independent validation, and reporting — and you can
+without sending it again. Nineteen specialist agents execute in order,
+sequenced by **Hermes**, the orchestrator — planning, ingestion, data
+contract, profiling, quality scoring, privacy scanning, cleaning,
+preparation, segment concentration, the four analytics agents, anomaly
+detection, sensitivity testing, visualization, provenance, validation,
+and reporting. Hermes runs the stages, holds the approval gate, and
+recovers an interrupted run; it never analyses anything itself. You can
 **Pause**, **Resume**, or **Cancel** at any time. Pausing is
 recorded on the server, so it holds across a refresh and applies to a
 background worker too, not just the tab you clicked in.

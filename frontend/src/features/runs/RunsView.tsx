@@ -547,6 +547,11 @@ export function RunsView() {
         <div className="panel__column panel__column--side">
           <div className="card">
             <h3 className="card__title">Specialist pipeline</h3>
+              <p className="controlrow__help">
+                Sequenced by <strong>Hermes</strong>, the orchestrator: it runs the
+                stages in order, holds the approval gate, and recovers an
+                interrupted run. It never analyses anything itself.
+              </p>
             <ul className="runtasks" aria-live="polite">
               {run.tasks.map((task) => (
                 <li key={task.id} className={`runtask runtask--${task.state}`}>

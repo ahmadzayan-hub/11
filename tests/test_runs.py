@@ -1,5 +1,7 @@
 """Tests for the durable run engine and analytics pipeline."""
 
+from server import analytics
+
 import json
 import tempfile
 import unittest
@@ -63,7 +65,7 @@ class RunEngineTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         return response.json()
 
-    def advance_until(self, run_id, stop_states, limit=20):
+    def advance_until(self, run_id, stop_states, limit=30):
         run = None
         for _ in range(limit):
             run = self.client.post(f"/api/runs/{run_id}/advance").json()
@@ -74,13 +76,11 @@ class RunEngineTestCase(unittest.TestCase):
     def test_full_pipeline_reaches_approval_with_verified_claims(self):
         run = self.create_run()
         self.assertEqual(run["state"], "queued")
-        self.assertEqual(len(run["tasks"]), 13)
+        self.assertEqual(len(run["tasks"]), 20)
         run = self.advance_until(run["id"], {"awaiting_approval"})
         self.assertEqual(run["state"], "awaiting_approval")
         states = {t["role"]: t["state"] for t in run["tasks"]}
-        for role in ("planner", "collector", "profiler", "cleaner", "preparer",
-                     "descriptive", "diagnostic", "predictive", "prescriptive",
-                     "visuals", "validator", "reporter"):
+        for role, _stage in analytics.PIPELINE:
             self.assertEqual(states[role], "succeeded", role)
         validator = next(t for t in run["tasks"] if t["role"] == "validator")
         self.assertTrue(all(c["passed"] for c in validator["quality_checks"]))

@@ -28,10 +28,15 @@ environment — not a replacement for Windows, macOS, or Linux.
   opens with a headline in plain business language — "Revenue is up 45%
   over the period", not "the mean increased by 2.3 standard deviations" —
   and statistical jargon in a claim or headline **fails validation**
-- **Analytics runs** — a goal becomes a governed pipeline of specialist
-  agents (planner, collection, profiling, cleaning, preparation, the four
-  analytics agents, visualization, independent validation, reporting)
-  executed as durable, bounded tasks: pause, cancel, restart recovery,
+- **Nineteen governed specialists, orchestrated by Hermes** — planning,
+  ingestion, data contract, profiling, quality scoring, privacy scanning,
+  cleaning, preparation, segment concentration, the four analytics
+  agents, anomaly detection, sensitivity testing, visualization,
+  provenance, independent validation, and reporting, then an
+  approval-gated publish. **Hermes sequences them and holds the gate; it
+  analyses nothing itself**, which is what keeps "no stage approves its
+  own work" structural. Every stage computes something no other stage
+  computes (ADR 0009). Runs are durable, bounded tasks: pause, cancel, restart recovery,
   truthful SVG charts, and a report where **every claim links to a
   calculation**. Forecast accuracy is measured by backtesting, and a
   forecast that could not be tested says so
@@ -168,7 +173,7 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker (240 tests)
+# Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker (253 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -184,7 +189,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 240 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 253 Python tests, 23 frontend unit
 tests, and 38 end-to-end checks (37 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:
