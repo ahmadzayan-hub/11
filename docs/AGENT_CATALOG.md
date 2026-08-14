@@ -36,7 +36,7 @@ list as the stopping rule).
 | 18 | Provenance Agent | Builds snapshot → calculations → claims and checks it holds both ways: no claim citing missing evidence, and uncited calculations named | no |
 | 19 | Validation Expert | Reconciles totals and the change decomposition, row accounting, claim-evidence coverage, forecast accuracy declared, recommendations carry assumptions, claims free of statistical jargon; may reject, never rewrites | rejects → partially_completed |
 | 20 | Reporting Expert | One report per analytics type plus a comprehensive report embedding all four, with the claims-evidence matrix and limitations | no |
-| 21 | Knowledge Curator (publish) | Approval-gated write-back to the Obsidian vault with provenance frontmatter | approval required |
+| 21 | Knowledge Curator (vault publish) | Approval-gated write-back to the Obsidian vault with provenance frontmatter | approval required |
 
 ## The four types form a ladder
 

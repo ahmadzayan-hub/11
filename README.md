@@ -173,7 +173,7 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker (253 tests)
+# Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker, docs (258 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -189,7 +189,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 253 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 258 Python tests, 23 frontend unit
 tests, and 38 end-to-end checks (37 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:

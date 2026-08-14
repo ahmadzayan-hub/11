@@ -165,7 +165,7 @@ interface RunDetail {
   state: RunState; error: string | null
   created_at: string; updated_at: string
   paused: boolean
-  tasks: RunTask[]                       // 13 of them, in order
+  tasks: RunTask[]                       // 20 of them, in order
   reports: Array<{ type: 'descriptive' | 'diagnostic' | 'predictive' | 'prescriptive'
                    question: string; title: string
                    headline: string      // the one sentence that leads the panel
@@ -213,9 +213,12 @@ upload / paste). On file select, show name and row count *before*
 starting ("quarterly-sales.csv · 4 data rows"). Limits 2 MB and 50,000
 rows; reject oversize client-side with the actual size.
 
-**Pipeline:** 13 task rows with state marks and summaries filling in
-live. Pause / Resume / Cancel — all server-side and durable, so reflect
-`paused` from the response rather than local state.
+**Pipeline:** 20 task rows with state marks and summaries filling in
+live — design for that length, not for five. The panel is headed by the
+orchestrator, **Hermes**, which sequences the stages, holds the approval
+gate and recovers an interrupted run; it analyses nothing itself, and no
+task row belongs to it. Pause / Resume / Cancel — all server-side and
+durable, so reflect `paused` from the response rather than local state.
 
 **The four analytics agents** are the product's spine. Real headlines
 they emit, for sizing your layout:

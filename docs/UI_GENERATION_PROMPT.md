@@ -149,10 +149,15 @@ and 50,000 rows; an oversize file is rejected with its actual size.
 
 **Running**: a "Specialist pipeline" list, one row per agent, each with a
 state mark (pending · running · succeeded · failed · skipped) and a
-one-line summary that fills in as it completes. Thirteen stages:
-Planner, Data Source, Data Profiling, Data Cleaning, Data Preparation,
-then the four analytics agents, then Visualization, Validation,
-Reporting, and the gated Publish. Controls: Pause, Resume, Cancel.
+one-line summary that fills in as it completes. **Twenty rows**, so the
+list needs to stay scannable at that length rather than assuming five:
+Planner, Data Source, Data Contract, Data Profiling, Data Quality,
+Privacy, Data Cleaning, Data Preparation, Segment Concentration, then
+the four analytics agents, then Anomaly, Prescriptive's Sensitivity
+check, Visualization, Provenance, Validation, Reporting, and the gated
+Publish. The panel names its orchestrator — **Hermes** — which sequences
+them, holds the approval gate, and analyses nothing itself. Controls:
+Pause, Resume, Cancel.
 
 **The four analytics agents are the heart of it.** Each answers one
 question and writes its own report:

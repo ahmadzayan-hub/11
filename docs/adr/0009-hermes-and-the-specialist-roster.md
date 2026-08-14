@@ -61,8 +61,10 @@ is a slot to fill.
 - The validator gained two checks that only exist because these stages
   do: personal data must reach the approver, and the provenance chain
   must be complete.
-- `EVIDENCE_STAGES` now spans fifteen stages, so the claims table and key
-  metrics in the comprehensive report grew accordingly — 39 calculations
+- `EVIDENCE_STAGES` now covers fifteen of the nineteen stages — the four
+  that produce no claims of their own are the planner, visuals, validator
+  and reporter — so the claims table and key metrics in the comprehensive
+  report grew accordingly — 39 calculations
   supporting 21 claims on the sample dataset, against 15 claims before.
 - Stage order is a dependency order, and a test asserts it: each stage
   may only read what an earlier stage produced.
