@@ -11,7 +11,7 @@ workspace and the command line. For installation and testing, see
 ### Starting and stopping
 
 ```bash
-python -m uvicorn server.app:app --port 8000
+python scripts/serve.py
 ```
 
 Open <http://localhost:8000>. A session starts automatically, and
@@ -23,6 +23,28 @@ gracefully first (the agent says goodbye and the composer locks).
 
 On your first visit a short onboarding dialog explains the basics — it
 appears once and can be dismissed permanently.
+
+### Opening it on a phone
+
+`scripts/serve.py` also prints an address for phones on the same Wi-Fi —
+something like `http://192.168.1.20:8000`. Type that into the phone's
+browser; no install step is involved.
+
+Two things are worth knowing before you do:
+
+- **Local mode has no login.** Anyone on that network can open the app and
+  read or change its saved memory. On a network you do not control, start
+  it with `python scripts/serve.py --local-only`, which makes it reachable
+  from your own computer only.
+- **"Add to Home screen" needs HTTPS** on most phones. The app ships as an
+  installable PWA, but a phone will only offer to install it from an
+  address served over HTTPS — that is, from a deployment, not from a
+  laptop on the local network. Over plain HTTP the app still works in the
+  browser; it just is not offered as an icon.
+
+`--port 9000` moves it off port 8000 if something else is already there.
+The original `python -m uvicorn server.app:app --port 8000` still works
+and does the same thing, minus the address detection.
 
 ### The workspace at a glance
 

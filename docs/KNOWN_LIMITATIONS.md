@@ -62,7 +62,12 @@ required local files. Both behaviors are covered by tests
    are stored in browser storage without refresh rotation; and the rate
    limiter is per process, so multi-instance deployments need a shared
    store. There is no admin UI for granting roles — roles come from
-   token claims or `AGENTIC_OS_DEFAULT_ROLE`.
+   token claims or `AGENTIC_OS_DEFAULT_ROLE`. A consequence worth
+   stating plainly: `python scripts/serve.py` binds to the local network
+   so a phone can reach it, and because local mode has no login, every
+   device on that network can read and change the saved memory. The
+   launcher prints this at start-up and `--local-only` opts out, but
+   nothing enforces it — a laptop on café Wi-Fi is an open app.
 6. Execution is client-stepped by default: runs advance while the Runs
    view is open. A background worker (`python scripts/worker.py`) can
    advance them server-side with no browser, using database leases with

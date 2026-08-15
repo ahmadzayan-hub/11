@@ -104,12 +104,12 @@ and returns fresh state snapshots.
 ├── utils.py               # Config loading, JSON persistence, validation
 ├── server/                # FastAPI adapter, run engine, storage, auth,
 │                          # backup/restore
-├── scripts/               # backup.py · restore.py · worker.py
+├── scripts/               # serve.py · backup.py · restore.py · worker.py
 ├── config.json            # User-editable settings
 ├── data/memory.json       # Persistent memory (starts empty)
 ├── tests/                 # Python unittest suite (agent, utils, API,
 │                          # runs, analytics, auth, quotas, backups,
-│                          # worker, model gateway)
+│                          # worker, model gateway, launcher, docs)
 ├── frontend/
 │   ├── src/
 │   │   ├── app/           # Shell, store, theme
@@ -151,16 +151,28 @@ cd frontend && npm install && npm run build && cd ..
 **Web interface (recommended):**
 
 ```bash
-python -m uvicorn server.app:app --port 8000
+python scripts/serve.py
 ```
 
 Then open <http://localhost:8000>. The server hosts both the API and the
-built frontend.
+built frontend. The launcher also prints an address for **a phone on the
+same Wi-Fi** (`http://192.168.x.x:8000`) — with the consequence stated,
+because binding to the network is a real decision: local mode has no
+login, so anyone on that network can read and change the saved memory.
+Use `--local-only` on a network you do not trust, and `--port 9000` if
+8000 is taken.
+
+"Add to Home screen" needs HTTPS on most phones, so the *installable* app
+comes from a deployment rather than from a laptop on the local network;
+over plain HTTP the app still runs fine in the phone's browser.
+
+`python -m uvicorn server.app:app --port 8000` remains equivalent — the
+launcher only adds the address detection and the warning.
 
 **Development mode** (hot reload, two terminals):
 
 ```bash
-python -m uvicorn server.app:app --reload --port 8000   # terminal 1
+python scripts/serve.py --reload                        # terminal 1
 cd frontend && npm run dev                              # terminal 2 → http://localhost:5173
 ```
 
@@ -173,7 +185,8 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker, docs (258 tests)
+# Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker,
+# launcher, docs (270 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -189,7 +202,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 258 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 270 Python tests, 23 frontend unit
 tests, and 38 end-to-end checks (37 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:
