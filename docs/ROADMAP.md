@@ -13,8 +13,9 @@ gated Obsidian vault publishing, provider-neutral model gateway
 (deterministic default, optional Groq narration), mobile-first PWA,
 security hardening, CI gates. Evidence at the time of that gate: 88
 Python + 18 unit + 23 e2e tests green in CI; Lighthouse 95/100/100/100;
-clean npm audit. (Tier 2 work has since grown the suite to 253 Python +
-23 unit + 38 e2e checks.)
+clean npm audit. (Tier 2 work has since grown the suite well past that;
+the current counts live in README.md, which is the one place they are
+maintained.)
 
 Standing rule already enforced and carried forward: **raw datasets are
 never sent to a model provider** — only deterministic, already-verified
@@ -95,6 +96,15 @@ facts reach the narrator.
 - **Experimentation and causal inference:** power analysis, A/B and
   sequential testing, multiple-testing control, sample-ratio-mismatch
   detection, explicit confounding and counterfactual limitations.
+  **Partly done (ADR 0010):** the Experiment and Causal Inference Agent
+  ships fixed-horizon A/B comparison with an uncertainty range,
+  Bonferroni control across arms, sample-ratio-mismatch detection, power
+  and minimum-detectable-effect arithmetic, and a refusal path that
+  prices the experiment when the data is observational. **Remaining:**
+  sequential testing and always-valid inference, and any method for
+  estimating an effect from observational data (propensity scores,
+  difference-in-differences, instrumental variables, synthetic control) —
+  each of which is a research decision, not a missing function.
 - **UAE PDPL compliance:** data-residency decisions, cross-border
   transfer controls, processor registers, consent evidence, privacy
   impact assessments, deletion across primary storage, embeddings,
@@ -119,17 +129,21 @@ facts reach the narrator.
 
 Seven specialists were added in ADR 0009 — data contract, data quality,
 privacy, segment concentration, anomaly, sensitivity, and provenance —
-each admitted on the test that it computes something no other stage
-computes. The roster is nineteen stages plus the publish gate,
-orchestrated by **Hermes**, which analyses nothing itself. The rule was
+and an eighth in ADR 0010: experiment and causal inference. Each was
+admitted on the test that it computes something no other stage computes.
+The roster is twenty stages plus the publish gate, orchestrated by
+**Hermes**, which analyses nothing itself. The rule was
 never "few agents"; it was "no agent that only rephrases another".
 
-The four typed contracts below remain outstanding:
+The typed contracts below remain outstanding:
 
 1. Data Platform Agent (the *Data Contract* half shipped in ADR 0009)
-2. Experiment and Causal Inference Agent
-3. Pluggable Domain Expert Agent
-4. Reliability and Incident Management Agent
+2. Pluggable Domain Expert Agent
+3. Reliability and Incident Management Agent
+
+The Experiment and Causal Inference Agent left this list in ADR 0010
+with its typed contract in `docs/AGENT_CATALOG.md`, including the
+explicit statement of what it does not attempt.
 
 Each enters the catalog only with the full typed contract
 (entry/exit criteria, budgets, quality checks, evaluation suite) defined

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { openTab, skipOnboarding } from './helpers'
 
-test('the analytics-type tabs follow the keyboard tabs pattern', async ({ page }) => {
+test('the report tabs follow the keyboard tabs pattern', async ({ page }) => {
   await skipOnboarding(page)
   await page.goto('/')
   await openTab(page, /^Runs/)
@@ -21,6 +21,11 @@ test('the analytics-type tabs follow the keyboard tabs pattern', async ({ page }
   await expect(tab(/diagnostic/i)).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('tabpanel')).toContainText('Why did it happen?')
 
+  // The causal check sits right after the stage that finds associations.
+  await page.keyboard.press('ArrowRight')
+  await expect(tab(/experiment/i)).toBeFocused()
+  await expect(page.getByRole('tabpanel')).toContainText('Can we claim a cause?')
+
   await page.keyboard.press('End')
   await expect(tab(/prescriptive/i)).toBeFocused()
   await expect(page.getByRole('tabpanel')).toContainText('What should I do?')
@@ -33,7 +38,7 @@ test('the analytics-type tabs follow the keyboard tabs pattern', async ({ page }
   await page.keyboard.press('Home')
   await expect(tab(/descriptive/i)).toBeFocused()
 
-  // Roving tabindex: the tablist is one stop, not four.
+  // Roving tabindex: the tablist is one stop, not five.
   await expect(page.getByRole('tab', { selected: false }).first()).toHaveAttribute(
     'tabindex',
     '-1',

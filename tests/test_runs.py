@@ -76,7 +76,10 @@ class RunEngineTestCase(unittest.TestCase):
     def test_full_pipeline_reaches_approval_with_verified_claims(self):
         run = self.create_run()
         self.assertEqual(run["state"], "queued")
-        self.assertEqual(len(run["tasks"]), 20)
+        # Every stage, plus the approval-gated publish. Derived so
+        # that adding a stage does not need this line edited — the
+        # property under test is "one row per task", not "twenty".
+        self.assertEqual(len(run["tasks"]), len(analytics.PIPELINE) + 1)
         run = self.advance_until(run["id"], {"awaiting_approval"})
         self.assertEqual(run["state"], "awaiting_approval")
         states = {t["role"]: t["state"] for t in run["tasks"]}

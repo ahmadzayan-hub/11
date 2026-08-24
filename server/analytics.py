@@ -18,6 +18,7 @@ Expert can independently verify every material statement.
 import csv
 import hashlib
 import io
+import math
 import re
 import statistics
 
@@ -137,6 +138,14 @@ ANALYTICS_TYPES = [
     ("predictive", "What will happen?"),
     ("prescriptive", "What should I do?"),
 ]
+
+# Sections that get their own standalone report and their own tab in the
+# interface. The four types are the ladder; the causal section is the
+# boundary check that sits across it — it is not a fifth type, which is
+# why it is a separate list rather than a fifth entry above.
+REPORT_SECTIONS = ANALYTICS_TYPES[:2] + [
+    ("experiment", "Can we claim a cause?"),
+] + ANALYTICS_TYPES[2:]
 
 
 def _section_report(title, question, ctx, body_lines, calculations, headline=None):
@@ -555,6 +564,430 @@ def diagnostic(ctx):
                 "report_markdown": report},
         calculations=calcs, claims=claims,
     )
+
+
+# ---------------------------------------------------------------------------
+# Experiment and causal inference
+#
+# The diagnostic agent finds where movement came from and what moves with
+# what. Neither is a cause. The gap between the two is the most expensive
+# mistake in business analytics: acting on an association that was never
+# going to survive intervention. This agent owns that boundary, and it is
+# deliberately hard to satisfy — it says "no cause here" unless the data
+# itself records a controlled comparison.
+#
+# When it says no, it does not stop there. It computes the experiment that
+# *would* settle the question: how many observations per group, and what
+# size of change the data already in hand could detect. That turns an
+# unanswerable question into a costed decision.
+# ---------------------------------------------------------------------------
+
+# Two-sided 5% and 80% power, the conventional pair. They appear in the
+# calculation methods as numbers; claims translate them into what a
+# business reader needs: how often a test like this would catch a real
+# effect of the size being asked about.
+Z_TWO_SIDED_95 = statistics.NormalDist().inv_cdf(0.975)
+Z_POWER_80 = statistics.NormalDist().inv_cdf(0.80)
+
+# Signals that a column records assignment to an arm. Deliberately narrow:
+# a false positive here would let the run call an observational segment a
+# controlled comparison, which is exactly the error the stage exists to
+# prevent. "region" and "category" must never qualify.
+#
+# "cohort" is deliberately absent: a cohort is defined by something that
+# already happened, never by assignment, so accepting it would let the
+# stage read an observational split as a controlled one.
+EXPERIMENT_COLUMN_WORDS = ("variant", "treatment", "arm", "test_group", "testgroup",
+                           "experiment", "bucket", "ab_test", "abtest",
+                           "assignment", "group_assignment")
+# Bare "A"/"B" values are not accepted on their own — a column of grades
+# or building names would qualify. One of these words must be present.
+EXPERIMENT_VALUE_WORDS = ("control", "treatment", "holdout", "baseline", "variant")
+BASELINE_NAMES = ("control", "baseline", "holdout")
+
+# Relative changes the sizing table answers for, smallest first.
+DETECTABLE_LIFTS = (0.05, 0.10, 0.20)
+
+
+def _experiment_column(rows, columns, numeric_columns, date_col):
+    """The column recording which arm each row belongs to, or (None, [])."""
+    for column in columns:
+        if column in numeric_columns or column == date_col:
+            continue
+        values = {str(row.get(column, "")).strip() for row in rows}
+        values.discard("")
+        if not 2 <= len(values) <= 6:
+            continue
+        named_like_an_experiment = any(word in column.lower()
+                                       for word in EXPERIMENT_COLUMN_WORDS)
+        labelled_like_an_experiment = bool({v.lower() for v in values}
+                                           & set(EXPERIMENT_VALUE_WORDS))
+        if named_like_an_experiment or labelled_like_an_experiment:
+            return column, sorted(values)
+    return None, []
+
+
+def _sample_size_per_arm(variance, delta):
+    """Observations per arm to detect `delta` at 5% two-sided, 80% power."""
+    if not delta:
+        return None
+    return math.ceil(2 * (Z_TWO_SIDED_95 + Z_POWER_80) ** 2 * variance / delta ** 2)
+
+
+def _smallest_detectable_change(variance, rows_available):
+    """The smallest difference the rows already in hand could detect, if
+    they were split evenly into two arms."""
+    per_arm = rows_available / 2
+    if per_arm < 2 or variance <= 0:
+        return None
+    return (Z_TWO_SIDED_95 + Z_POWER_80) * math.sqrt(2 * variance / per_arm)
+
+
+def _arm_stats(values):
+    count = len(values)
+    mean = statistics.fmean(values)
+    variance = statistics.variance(values) if count > 1 else 0.0
+    return count, mean, variance
+
+
+def experiment(ctx):
+    """Experiment and Causal Inference Agent — can we claim a cause?
+
+    Two paths, and the dataset chooses which. If it records assignment to
+    arms, the arms are compared and the difference is reported as a range
+    rather than a single number, because a single number implies a
+    precision the sample does not have. If it does not, the answer is no —
+    followed by the design that would change the answer.
+    """
+    prep = ctx["preparer"]
+    rows = ctx["cleaner"]["rows"]
+    measure = prep["measure"]
+    values = [row[measure] for row in rows if row.get(measure) is not None]
+    column, arm_names = _experiment_column(
+        rows, ctx["collector"]["columns"], ctx["profiler"]["numeric_columns"],
+        prep["date_col"])
+
+    if len(values) < 2:
+        calcs = [{"id": "c_exp_rows", "name": "rows_with_a_measure", "value": len(values),
+                  "method": f"rows where {measure} is present"}]
+        headline = ("There is not enough data here to compare anything, so no cause "
+                    "can be claimed.")
+        return _result(
+            "succeeded", headline,
+            output={"headline": headline, "is_experiment": False,
+                    "report_markdown": _section_report(
+                        "Causal", "Can we claim a cause?", ctx,
+                        ["Fewer than two usable observations: nothing to compare."],
+                        calcs, headline=headline)},
+            calculations=calcs,
+            claims=[{"id": "cl_exp_thin", "type": "limitation", "text": headline,
+                     "evidence": ["c_exp_rows"], "status": "verified"}])
+
+    if column is None:
+        return _observational(ctx, values, measure)
+    return _controlled_comparison(ctx, rows, values, measure, column, arm_names)
+
+
+def _observational(ctx, values, measure):
+    """No assignment column: say no, then price the experiment."""
+    count, mean, variance = _arm_stats(values)
+    scale = abs(mean)
+    calcs = [
+        {"id": "c_exp_rows", "name": "rows_with_a_measure", "value": count,
+         "method": f"rows where {measure} is present"},
+        {"id": "c_exp_spread", "name": f"typical_spread_of_{measure}",
+         "value": round(math.sqrt(variance), 2),
+         "method": f"sample standard deviation of {measure} over {count} rows"},
+    ]
+    sizing = []
+    for index, lift in enumerate(DETECTABLE_LIFTS):
+        needed = _sample_size_per_arm(variance, lift * scale) if scale else None
+        if needed is None:
+            continue
+        sizing.append({"lift": lift, "rows_per_arm": needed})
+        calcs.append({
+            "id": f"c_exp_n_{index}", "name": f"rows_per_group_for_{int(lift * 100)}pct",
+            "value": needed,
+            "method": f"2·(1.96+0.84)²·variance/({lift:.2f}·mean)² — two-sided 5%, "
+                      "80% power"})
+    detectable = _smallest_detectable_change(variance, count)
+    if detectable is not None and scale:
+        calcs.append({"id": "c_exp_mde", "name": "smallest_detectable_change",
+                      "value": round(detectable / scale, 4),
+                      "method": f"(1.96+0.84)·√(2·variance/({count}/2)) ÷ mean — the "
+                                "existing rows split evenly into two groups"})
+
+    lines = [
+        f"This dataset records what happened to {measure}. It carries no column "
+        "saying which rows were treated differently, so every finding in this run "
+        "describes an association. **Nothing here establishes a cause**, and no "
+        "amount of extra rows of the same kind would change that — it is a "
+        "question of design, not of volume.",
+        "",
+        "### What it would take to prove one",
+    ]
+    if sizing:
+        lines += ["", "| Change you want to prove | Observations needed in *each* group |",
+                  "| --- | --- |"]
+        lines += [f"| {item['lift']:.0%} of the average {measure} "
+                  f"| {item['rows_per_arm']:,} |" for item in sizing]
+        lines += ["", "Split the population at random into two groups, change one "
+                  "thing for one of them, and collect at least that many "
+                  "observations in each. A test of that size catches a real "
+                  "change of that size about four times in five."]
+    else:
+        lines += ["", f"The average {measure} is zero or the values never vary, so a "
+                  "relative change cannot be sized from this data."]
+    if detectable is not None and scale:
+        lines += ["", f"With the {count:,} observations already here, split evenly, "
+                  f"the smallest change that would stand out from ordinary variation "
+                  f"is about **{detectable / scale:.0%}** of the average. Anything "
+                  "smaller would be invisible in a sample this size — which is worth "
+                  "knowing before commissioning the test."]
+    claims = [{
+        "id": "cl_exp_observational", "type": "limitation",
+        "text": f"This data records what happened; it contains no controlled "
+                f"comparison, so no finding about {measure} may be stated as a cause.",
+        "evidence": ["c_exp_rows"], "status": "verified"}]
+    if sizing:
+        first = sizing[1] if len(sizing) > 1 else sizing[0]
+        index = DETECTABLE_LIFTS.index(first["lift"])
+        claims.append({
+            "id": "cl_exp_design", "type": "recommendation",
+            "text": f"To prove a {first['lift']:.0%} change in {measure}, run a "
+                    f"randomised comparison with about {first['rows_per_arm']:,} "
+                    "observations in each group; a test that size catches a real "
+                    "change of that size about four times in five.",
+            "evidence": [f"c_exp_n_{index}", "c_exp_spread"], "status": "verified"})
+        headline = (f"No cause can be claimed from this data — to prove a "
+                    f"{first['lift']:.0%} change you would need about "
+                    f"{first['rows_per_arm']:,} observations in each of two groups.")
+    else:
+        headline = ("No cause can be claimed from this data: it records what "
+                    "happened, not a controlled comparison.")
+    report = _section_report("Causal", "Can we claim a cause?", ctx, lines, calcs,
+                             headline=headline)
+    return _result(
+        "succeeded", headline,
+        output={"headline": headline, "is_experiment": False, "sizing": sizing,
+                "smallest_detectable_change": (round(detectable / scale, 4)
+                                               if detectable is not None and scale
+                                               else None),
+                "report_markdown": report},
+        calculations=calcs, claims=claims)
+
+
+def _controlled_comparison(ctx, rows, values, measure, column, arm_names):
+    """An assignment column exists: compare the arms honestly."""
+    arms = {}
+    for row in rows:
+        name = str(row.get(column, "")).strip()
+        value = row.get(measure)
+        if name and value is not None:
+            arms.setdefault(name, []).append(value)
+    usable = {name: vals for name, vals in arms.items() if len(vals) >= 2}
+    calcs = [{"id": "c_exp_arms", "name": "groups_compared", "value": len(usable),
+              "method": f"distinct values of “{column}” with at least two rows"}]
+
+    if len(usable) < 2:
+        headline = (f"“{column}” looks like an experiment, but only "
+                    f"{len(usable)} group has enough rows to compare, so no cause "
+                    "can be claimed.")
+        lines = [f"Column “{column}” records assignment to "
+                 f"{len(arms)} group(s), but a comparison needs at least two "
+                 "groups with two or more observations each."]
+        return _result(
+            "succeeded", headline,
+            output={"headline": headline, "is_experiment": False,
+                    "assignment_column": column,
+                    "report_markdown": _section_report(
+                        "Causal", "Can we claim a cause?", ctx, lines, calcs,
+                        headline=headline)},
+            calculations=calcs,
+            claims=[{"id": "cl_exp_thin_arms", "type": "limitation", "text": headline,
+                     "evidence": ["c_exp_arms"], "status": "verified"}])
+
+    baseline = next((name for name in sorted(usable)
+                     if name.lower() in BASELINE_NAMES), sorted(usable)[0])
+    base_n, base_mean, base_var = _arm_stats(usable[baseline])
+    calcs.append({"id": "c_exp_base", "name": f"average_{measure}_in_{baseline}",
+                  "value": round(base_mean, 2),
+                  "method": f"mean {measure} over {base_n} rows where "
+                            f"{column} = “{baseline}”"})
+
+    # Comparing several arms against one baseline multiplies the chances of
+    # a fluke looking real, so each range is widened to keep the risk across
+    # the whole family at 5% (Bonferroni). Stated as arithmetic, not as a
+    # word the reader has to trust.
+    comparisons = sorted(name for name in usable if name != baseline)
+    z = statistics.NormalDist().inv_cdf(1 - 0.05 / (2 * len(comparisons)))
+    results = []
+    for index, name in enumerate(comparisons):
+        count, mean, variance = _arm_stats(usable[name])
+        difference = mean - base_mean
+        spread = math.sqrt(variance / count + base_var / base_n)
+        low, high = difference - z * spread, difference + z * spread
+        relative = difference / abs(base_mean) if base_mean else None
+        results.append({
+            "group": name, "rows": count, "average": round(mean, 2),
+            "difference": round(difference, 2),
+            "relative": round(relative, 4) if relative is not None else None,
+            "low": round(low, 2), "high": round(high, 2),
+            "beyond_chance": (low > 0 and high > 0) or (low < 0 and high < 0),
+        })
+        calcs.append({
+            "id": f"c_exp_diff_{index}", "name": f"difference_{name}_vs_{baseline}",
+            "value": round(difference, 2),
+            "method": f"mean {measure} in “{name}” ({count} rows) minus “{baseline}” "
+                      f"({base_n} rows)"})
+        calcs.append({
+            "id": f"c_exp_range_{index}", "name": f"range_{name}_vs_{baseline}",
+            "value": f"{low:,.2f} to {high:,.2f}",
+            "method": f"difference ± {z:.2f}·√(var/n + var/n), two-sided 5% split "
+                      f"across {len(comparisons)} comparison(s)"})
+
+    # A randomised split that came out lopsided is evidence the assignment
+    # or the logging is broken, and it invalidates the comparison above it.
+    # Three standard errors, because flagging this is an accusation about
+    # the reader's plumbing: a false alarm costs trust in every other check
+    # in the report. The cost of that caution is that a tiny sample can be
+    # visibly lopsided without crossing the line — a 9/2 split is inside
+    # what eleven coin flips do.
+    total_rows = sum(len(v) for v in usable.values())
+    expected_share = 1 / len(usable)
+    worst = max(usable, key=lambda n: abs(len(usable[n]) / total_rows - expected_share))
+    observed_share = len(usable[worst]) / total_rows
+    tolerance = 3 * math.sqrt(expected_share * (1 - expected_share) / total_rows)
+    lopsided = abs(observed_share - expected_share) > tolerance
+    calcs.append({"id": "c_exp_split", "name": "largest_split_deviation",
+                  "value": round(abs(observed_share - expected_share), 4),
+                  "method": f"|share of “{worst}” − {expected_share:.3f}| over "
+                            f"{total_rows} rows; flagged beyond {tolerance:.3f}"})
+
+    claims, lines = [], [
+        f"Column “{column}” records which group each row belongs to, so this run "
+        f"can compare them. “{baseline}” is used as the baseline; every figure "
+        "below is the difference from it.",
+        "",
+        "| Group | Rows | Average | Difference | Plausible range | Beyond chance? |",
+        "| --- | --- | --- | --- | --- | --- |",
+        f"| {baseline} (baseline) | {base_n} | {base_mean:,.2f} | — | — | — |",
+    ]
+    for item in results:
+        relative = f" ({item['relative']:+.1%})" if item["relative"] is not None else ""
+        lines.append(
+            f"| {item['group']} | {item['rows']} | {item['average']:,.2f} "
+            f"| {item['difference']:+,.2f}{relative} "
+            f"| {item['low']:,.2f} to {item['high']:,.2f} "
+            f"| {'yes' if item['beyond_chance'] else 'no'} |")
+    lines += ["", "The range is what the data can actually support. A single "
+              "difference looks precise and is not: repeat the same test and it "
+              "would land somewhere in that range. Where the range crosses zero, "
+              "the difference is inside what chance alone produces, and it should "
+              "not be acted on as a result."]
+    if len(comparisons) > 1:
+        lines += ["", f"{len(comparisons)} groups were compared against the "
+                  "baseline. Comparing more groups gives chance more chances, so "
+                  "each range was widened to keep the overall risk of a false "
+                  "result at the same level as a single comparison."]
+
+    for index, item in enumerate(results):
+        if item["beyond_chance"]:
+            direction = "ahead of" if item["difference"] > 0 else "behind"
+            claims.append({
+                "id": f"cl_exp_effect_{index}", "type": "finding",
+                "text": f"“{item['group']}” is {direction} “{baseline}” on {measure} "
+                        f"by {abs(item['difference']):,.2f}"
+                        + (f" ({abs(item['relative']):.1%})"
+                           if item["relative"] is not None else "")
+                        + f", and the plausible range ({item['low']:,.2f} to "
+                          f"{item['high']:,.2f}) does not include no-change, so this "
+                          "is unlikely to be chance alone.",
+                "evidence": [f"c_exp_diff_{index}", f"c_exp_range_{index}"],
+                "status": "verified"})
+        else:
+            claims.append({
+                "id": f"cl_exp_null_{index}", "type": "finding",
+                "text": f"“{item['group']}” and “{baseline}” cannot be separated on "
+                        f"{measure}: the plausible range ({item['low']:,.2f} to "
+                        f"{item['high']:,.2f}) includes no change, so the difference "
+                        "of " + f"{item['difference']:+,.2f} is within ordinary "
+                        "variation.",
+                "evidence": [f"c_exp_diff_{index}", f"c_exp_range_{index}"],
+                "status": "verified"})
+    if lopsided:
+        lines += ["", f"⚠️ The groups are not evenly sized: “{worst}” holds "
+                  f"{observed_share:.0%} of the rows where {expected_share:.0%} was "
+                  "expected. Random assignment rarely lands that far apart, so check "
+                  "how rows were assigned and logged before trusting anything above."]
+        claims.append({
+            "id": "cl_exp_split", "type": "warning",
+            "text": f"The groups are unevenly sized: “{worst}” holds "
+                    f"{observed_share:.0%} of rows against an expected "
+                    f"{expected_share:.0%}. Random assignment rarely produces a gap "
+                    "that wide, so the comparison may be measuring the assignment "
+                    "rather than the change.",
+            "evidence": ["c_exp_split"], "status": "verified"})
+
+    # The column proves an assignment was recorded. It does not prove the
+    # assignment was random — and only randomisation turns this difference
+    # into an effect. A run that quietly skipped this sentence would let a
+    # non-random rollout be read as proof of cause, which is the exact
+    # failure this stage exists to prevent.
+    claims.append({
+        "id": "cl_exp_random", "type": "assumption",
+        "text": f"This difference counts as the effect of the change only if rows "
+                f"were assigned to their “{column}” group at random. The data "
+                "records the assignment, not how it was made; without "
+                "randomisation this remains an association, like any other in "
+                "this report.",
+        "evidence": ["c_exp_arms"], "status": "verified"})
+    lines += ["", f"**This is a causal result only if assignment to “{column}” was "
+              "random.** The dataset records which group each row was in, not how "
+              "it got there. Where groups were formed by something that already "
+              "happened — who opted in, which region rolled out first — the "
+              "difference is an association wearing an experiment's clothes."]
+
+    # The comparison treats each row as one independent observation. When
+    # rows are period-by-segment aggregates that is false, and the ranges
+    # above are narrower than the truth. Saying so is cheaper than being
+    # quietly wrong.
+    claims.append({
+        "id": "cl_exp_units", "type": "limitation",
+        "text": f"Each row is treated as one independent observation of {measure}. "
+                "If rows are aggregates or the same subject appears more than once, "
+                "the ranges above are narrower than reality and the comparison "
+                "should be rerun on the underlying records.",
+        "evidence": ["c_exp_arms"], "status": "verified"})
+    lines += ["", "*Each row is treated as one independent observation. If the rows "
+              "are aggregates — one per month, per region — the ranges above are "
+              "narrower than the truth.*"]
+
+    strongest = max(results, key=lambda r: abs(r["difference"]))
+    if strongest["beyond_chance"]:
+        relative = (f" ({abs(strongest['relative']):.1%})"
+                    if strongest["relative"] is not None else "")
+        headline = (f"“{strongest['group']}” beats “{baseline}” on {measure} by "
+                    f"{abs(strongest['difference']):,.2f}{relative}, and the result "
+                    "is bigger than chance would explain."
+                    if strongest["difference"] > 0 else
+                    f"“{strongest['group']}” is behind “{baseline}” on {measure} by "
+                    f"{abs(strongest['difference']):,.2f}{relative}, by more than "
+                    "chance would explain.")
+    else:
+        headline = (f"No group can be separated from “{baseline}” on {measure}: "
+                    "every difference is inside what chance alone produces.")
+    if lopsided:
+        headline += " The groups are unevenly sized, so treat this with caution."
+    report = _section_report("Causal", "Can we claim a cause?", ctx, lines, calcs,
+                             headline=headline)
+    return _result(
+        "succeeded", headline,
+        output={"headline": headline, "is_experiment": True,
+                "assignment_column": column, "baseline": baseline,
+                "arms": results, "balanced": not lopsided,
+                "report_markdown": report},
+        calculations=calcs, claims=claims)
 
 
 # ---------------------------------------------------------------------------
@@ -1487,7 +1920,7 @@ def validator(ctx):
     # executive actually reads.
     jargon_hits = {cl["id"]: _jargon_in(cl["text"]) for cl in all_claims
                    if _jargon_in(cl["text"])}
-    for name, _ in ANALYTICS_TYPES:
+    for name, _ in REPORT_SECTIONS:
         headline = ctx.get(name, {}).get("headline", "")
         if _jargon_in(headline):
             jargon_hits[f"{name}.headline"] = _jargon_in(headline)
@@ -1540,7 +1973,10 @@ def reporter(ctx):
     }
     for name, question in ANALYTICS_TYPES:
         lines.append(f"| {name.capitalize()} | {question} | {headlines[name]} |")
-    lines += ["", "## Data quality, privacy and provenance",
+    # The boundary question sits under the table rather than in it: it is
+    # not a fifth type, it is the check on what the four may be used for.
+    lines += ["", f"**Can we claim a cause?** {ctx['experiment_result']['summary']}",
+              "", "## Data quality, privacy and provenance",
               ctx["quality_result"]["summary"],
               ctx["contract_result"]["summary"],
               ctx["profiler_result"]["summary"], ctx["cleaner_result"]["summary"],
@@ -1557,7 +1993,7 @@ def reporter(ctx):
         for calc in ctx.get(stage + "_result", {}).get("calculations", []):
             lines.append(f"| {calc['name']} | {calc['value']} | {calc['method']} |")
 
-    for name, _ in ANALYTICS_TYPES:
+    for name, _ in REPORT_SECTIONS:
         section = ctx[name].get("report_markdown", "")
         # Demote the section's own H1 so the combined document keeps one
         # heading level per depth.
@@ -1583,8 +2019,8 @@ def reporter(ctx):
         "- Findings describe only the supplied snapshot "
         f"(sha256:{ctx['collector']['snapshot']}).",
         "- Diagnostic analysis shows where movement came from and what moves with "
-        "what. It does not establish cause: that needs a controlled comparison or "
-        "domain knowledge this dataset does not carry.",
+        "what. It does not establish cause; the causal section states whether this "
+        "dataset supports a causal claim at all, and what design would settle it.",
         "- The forecast extends the historical pattern. It assumes the business keeps "
         "operating as it has, and it is stated with the error measured by backtesting "
         "(or explicitly marked unmeasured).",
@@ -1620,6 +2056,9 @@ PIPELINE = [
     # The maturity ladder: each type consumes the ones before it.
     ("descriptive", descriptive),
     ("diagnostic", diagnostic),
+    # Immediately after the stage that finds associations, because that is
+    # where the temptation to call one a cause appears.
+    ("experiment", experiment),
     ("predictive", predictive),
     ("anomaly", anomaly),
     ("prescriptive", prescriptive),
@@ -1633,7 +2072,8 @@ PIPELINE = [
 # Stages whose claims and calculations the validator audits.
 EVIDENCE_STAGES = ("collector", "contract", "profiler", "quality", "privacy",
                    "cleaner", "preparer", "segments", "descriptive", "diagnostic",
-                   "predictive", "anomaly", "prescriptive", "sensitivity", "lineage")
+                   "experiment", "predictive", "anomaly", "prescriptive",
+                   "sensitivity", "lineage")
 
 # Stages that receive the model gateway (narration of verified facts only).
 NARRATED_STAGES = ("prescriptive",)
@@ -1656,6 +2096,7 @@ ROLE_TITLES = {
     "segments": "Segment Concentration Agent",
     "descriptive": "Descriptive Analytics Agent — what happened?",
     "diagnostic": "Diagnostic Analytics Agent — why did it happen?",
+    "experiment": "Experiment and Causal Inference Agent — can we claim a cause?",
     "predictive": "Predictive Analytics Agent — what will happen?",
     "anomaly": "Anomaly Detection Agent",
     "prescriptive": "Prescriptive Analytics Agent — what should I do?",

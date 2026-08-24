@@ -17,8 +17,13 @@ from pathlib import Path
 from server import analytics
 
 DOCS = Path(__file__).resolve().parent.parent
+# Decision records are excluded on purpose. An ADR states what was true and
+# what was decided on its date; editing "nineteen stages" to "twenty" in a
+# record from before the twentieth existed would destroy the thing the file
+# is for. A superseded ADR says so at the top and points forward instead.
 MARKDOWN = sorted(p for p in DOCS.rglob("*.md")
-                  if "node_modules" not in p.parts and ".tmp" not in str(p))
+                  if "node_modules" not in p.parts and ".tmp" not in str(p)
+                  and "adr" not in p.parts)
 
 WORD_NUMBERS = {
     "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,

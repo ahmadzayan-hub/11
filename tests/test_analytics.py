@@ -7,6 +7,7 @@ path: a forecast from three data points, or a recommendation with no
 options to compare, must decline rather than invent.
 """
 
+import math
 import statistics
 import unittest
 
@@ -378,11 +379,200 @@ class GovernedSpecialistsTestCase(unittest.TestCase):
             "prescriptive": ["diagnostic", "predictive"],
             "sensitivity": ["prescriptive"], "visuals": ["preparer", "predictive"],
             "lineage": ["collector"], "reporter": ["validator"],
+            "experiment": ["preparer", "diagnostic"],
         }
         for stage, dependencies in needs.items():
             for dependency in dependencies:
                 self.assertLess(order.index(dependency), order.index(stage),
                                 f"{stage} runs before {dependency}")
+
+
+def ab_dataset(control, treatment, extra=None, column="variant"):
+    """A two- or three-arm dataset with values chosen by hand, so every
+    figure in the tests below can be recomputed on paper."""
+    lines = [f"{column},score"]
+    for value in control:
+        lines.append(f"control,{value}")
+    for value in treatment:
+        lines.append(f"treatment,{value}")
+    for name, values in (extra or {}).items():
+        for value in values:
+            lines.append(f"{name},{value}")
+    return "\n".join(lines) + "\n"
+
+
+def independent_range(baseline, arm, comparisons=1):
+    """The difference and its range, computed here from stdlib only."""
+    z = statistics.NormalDist().inv_cdf(1 - 0.05 / (2 * comparisons))
+    difference = statistics.fmean(arm) - statistics.fmean(baseline)
+    spread = math.sqrt(statistics.variance(arm) / len(arm)
+                       + statistics.variance(baseline) / len(baseline))
+    return difference, difference - z * spread, difference + z * spread
+
+
+class ExperimentAgentTestCase(unittest.TestCase):
+    """The boundary between association and cause.
+
+    This stage is the one that has to say no. Most of these tests are
+    therefore about refusal: refusing to read a segment as an experiment,
+    refusing to call an overlapping difference a result, and refusing to
+    let a comparison pass without stating what it assumed.
+    """
+
+    def test_ordinary_business_data_yields_no_causal_claim(self):
+        ctx, results = run_pipeline(analytics.sample_dataset())
+        stage = results["experiment"]
+        self.assertEqual(stage["status"], "succeeded")
+        self.assertFalse(ctx["experiment"]["is_experiment"])
+        self.assertTrue(any(c["type"] == "limitation" for c in stage["claims"]))
+        self.assertNotIn("cause", ctx["experiment"]["headline"].lower().replace(
+            "no cause", ""))
+
+    def test_a_segment_is_never_mistaken_for_an_experiment(self):
+        """region and category split the data; neither assigns anything.
+        Reading one as a controlled comparison is the single error this
+        stage exists to prevent."""
+        for column in ("region", "category", "cohort", "channel"):
+            dataset = (f"month,{column},revenue\n"
+                       "2025-01,Alpha,100\n2025-01,Beta,120\n"
+                       "2025-02,Alpha,110\n2025-02,Beta,130\n"
+                       "2025-03,Alpha,120\n2025-03,Beta,140\n")
+            ctx, _ = run_pipeline(dataset)
+            self.assertFalse(ctx["experiment"]["is_experiment"],
+                             f"“{column}” was read as an experiment")
+
+    def test_the_sample_size_it_asks_for_matches_an_independent_calculation(self):
+        ctx, results = run_pipeline(analytics.sample_dataset())
+        rows = ctx["cleaner"]["rows"]
+        measure = ctx["preparer"]["measure"]
+        values = [r[measure] for r in rows if r.get(measure) is not None]
+        variance = statistics.variance(values)
+        delta = 0.10 * abs(statistics.fmean(values))
+        z_sum = (statistics.NormalDist().inv_cdf(0.975)
+                 + statistics.NormalDist().inv_cdf(0.80))
+        expected = math.ceil(2 * z_sum ** 2 * variance / delta ** 2)
+        found = next(c for c in results["experiment"]["calculations"]
+                     if c["id"] == "c_exp_n_1")
+        self.assertEqual(found["value"], expected)
+        self.assertGreater(expected, 0)
+
+    def test_it_says_what_the_rows_in_hand_could_already_detect(self):
+        """Sizing the test you cannot afford is only half an answer."""
+        ctx, results = run_pipeline(analytics.sample_dataset())
+        rows = ctx["cleaner"]["rows"]
+        measure = ctx["preparer"]["measure"]
+        values = [r[measure] for r in rows if r.get(measure) is not None]
+        z_sum = (statistics.NormalDist().inv_cdf(0.975)
+                 + statistics.NormalDist().inv_cdf(0.80))
+        expected = (z_sum * math.sqrt(2 * statistics.variance(values)
+                                      / (len(values) / 2))
+                    / abs(statistics.fmean(values)))
+        self.assertAlmostEqual(ctx["experiment"]["smallest_detectable_change"],
+                               round(expected, 4), places=4)
+
+    def test_a_real_difference_is_measured_as_a_range_not_a_point(self):
+        control, treatment = [10, 12, 14, 16], [30, 32, 34, 36]
+        ctx, results = run_pipeline(ab_dataset(control, treatment))
+        self.assertTrue(ctx["experiment"]["is_experiment"])
+        self.assertEqual(ctx["experiment"]["baseline"], "control")
+        arm = ctx["experiment"]["arms"][0]
+        difference, low, high = independent_range(control, treatment)
+        self.assertAlmostEqual(arm["difference"], round(difference, 2), places=2)
+        self.assertAlmostEqual(arm["low"], round(low, 2), places=2)
+        self.assertAlmostEqual(arm["high"], round(high, 2), places=2)
+        self.assertTrue(arm["beyond_chance"])
+
+    def test_a_difference_inside_the_noise_is_not_reported_as_a_result(self):
+        """The expensive mistake is acting on a difference that a rerun
+        would not reproduce."""
+        control, treatment = [10, 40, 15, 35, 20], [12, 42, 14, 38, 25]
+        ctx, _ = run_pipeline(ab_dataset(control, treatment))
+        arm = ctx["experiment"]["arms"][0]
+        self.assertFalse(arm["beyond_chance"])
+        self.assertLess(arm["low"], 0)
+        self.assertGreater(arm["high"], 0)
+        self.assertIn("chance", ctx["experiment"]["headline"].lower())
+
+    def test_comparing_more_groups_widens_every_range(self):
+        """More comparisons give chance more chances. The correction is
+        arithmetic, not a footnote."""
+        control, treatment = [10, 12, 14, 16], [20, 22, 24, 26]
+        two_arms, _ = run_pipeline(ab_dataset(control, treatment))
+        three_arms, _ = run_pipeline(
+            ab_dataset(control, treatment, extra={"variant-b": [18, 19, 20, 21]}))
+        narrow = next(a for a in two_arms["experiment"]["arms"]
+                      if a["group"] == "treatment")
+        wide = next(a for a in three_arms["experiment"]["arms"]
+                    if a["group"] == "treatment")
+        self.assertEqual(narrow["difference"], wide["difference"])
+        self.assertGreater(wide["high"] - wide["low"], narrow["high"] - narrow["low"])
+
+    def test_a_lopsided_split_is_flagged_before_the_result_is_believed(self):
+        """A randomised split that lands 75/25 across sixty rows is
+        evidence the assignment or the logging is broken."""
+        # Distinct values throughout: identical rows are dropped as
+        # duplicates during cleaning, which would rebalance the split.
+        ctx, results = run_pipeline(ab_dataset(
+            [round(10 + index * 0.1, 1) for index in range(45)],
+            [round(20 + index * 0.1, 1) for index in range(15)]))
+        self.assertFalse(ctx["experiment"]["balanced"])
+        warnings = [c for c in results["experiment"]["claims"]
+                    if c["type"] == "warning"]
+        self.assertTrue(warnings)
+        self.assertIn("caution", ctx["experiment"]["headline"].lower())
+
+    def test_an_even_split_is_not_flagged(self):
+        ctx, results = run_pipeline(
+            ab_dataset([10, 12, 14, 16], [20, 22, 24, 26]))
+        self.assertTrue(ctx["experiment"]["balanced"])
+        self.assertFalse([c for c in results["experiment"]["claims"]
+                          if c["type"] == "warning"])
+
+    def test_a_comparison_always_states_that_it_assumed_randomisation(self):
+        """The column proves an assignment was recorded, never that it was
+        random — and only randomisation turns a difference into an effect."""
+        _, results = run_pipeline(ab_dataset([10, 12, 14, 16], [20, 22, 24, 26]))
+        assumptions = [c for c in results["experiment"]["claims"]
+                       if c["type"] == "assumption"]
+        self.assertTrue(assumptions)
+        self.assertIn("random", " ".join(c["text"] for c in assumptions).lower())
+
+    def test_a_comparison_always_states_how_it_treated_the_rows(self):
+        _, results = run_pipeline(ab_dataset([10, 12, 14, 16], [20, 22, 24, 26]))
+        limitations = [c["text"] for c in results["experiment"]["claims"]
+                       if c["type"] == "limitation"]
+        self.assertTrue(any("independent observation" in text
+                            for text in limitations))
+
+    def test_one_group_with_almost_no_rows_refuses_to_compare(self):
+        ctx, results = run_pipeline(ab_dataset([10, 12, 14, 16], [20]))
+        self.assertFalse(ctx["experiment"]["is_experiment"])
+        self.assertEqual(results["experiment"]["status"], "succeeded")
+        self.assertTrue(any(c["type"] == "limitation"
+                            for c in results["experiment"]["claims"]))
+
+    def test_the_causal_section_is_a_report_of_its_own(self):
+        ctx, results = run_pipeline(analytics.sample_dataset())
+        self.assertIn("experiment", dict(analytics.REPORT_SECTIONS))
+        self.assertNotIn("experiment", dict(analytics.ANALYTICS_TYPES),
+                         "the causal check is a boundary, not a fifth type")
+        report = ctx["experiment"]["report_markdown"]
+        self.assertIn("Can we claim a cause?", report)
+        self.assertIn("How each figure was calculated", report)
+        self.assertIn(report.split("\n")[0].lstrip("# "),
+                      results["reporter"]["output"]["report_markdown"]
+                      .replace("## Causal", "# Causal"))
+
+    def test_its_claims_are_in_business_language_like_every_other_stage(self):
+        for dataset in (analytics.sample_dataset(),
+                        ab_dataset([10, 12, 14, 16], [20, 22, 24, 26])):
+            _, results = run_pipeline(dataset)
+            for claim in results["experiment"]["claims"]:
+                self.assertEqual(analytics._jargon_in(claim["text"]), [],
+                                 claim["text"])
+            self.assertEqual(
+                analytics._jargon_in(results["experiment"]["output"]["headline"]),
+                [])
 
 
 if __name__ == "__main__":

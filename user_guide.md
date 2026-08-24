@@ -111,27 +111,30 @@ Open **Runs** to turn a goal into a governed analytics pipeline. Choose
 the bundled sample sales dataset, upload a CSV file, or paste one (header
 row first, up to 2 MB / 50,000 rows), then start the run. Uploading the
 same file twice stores it once, and a previous upload can be re-analysed
-without sending it again. Nineteen specialist agents execute in order,
+without sending it again. Twenty specialist agents execute in order,
 sequenced by **Hermes**, the orchestrator — planning, ingestion, data
 contract, profiling, quality scoring, privacy scanning, cleaning,
-preparation, segment concentration, the four analytics agents, anomaly
-detection, sensitivity testing, visualization, provenance, validation,
-and reporting. Hermes runs the stages, holds the approval gate, and
-recovers an interrupted run; it never analyses anything itself. You can
+preparation, segment concentration, the four analytics agents, causal
+inference, anomaly detection, sensitivity testing, visualization,
+provenance, validation, and reporting. Hermes runs the stages, holds the
+approval gate, and recovers an interrupted run; it never analyses
+anything itself. You can
 **Pause**, **Resume**, or **Cancel** at any time. Pausing is
 recorded on the server, so it holds across a refresh and applies to a
 background worker too, not just the tab you clicked in.
 
-### The four questions, four reports
+### The four questions, and the one that guards them
 
 The run answers the four questions of business analytics, each with its
-own agent and its own report. Use the tabs above the report to move
-between them:
+own agent and its own report, plus a fifth tab that says what those
+answers may be used for. Use the tabs above the report to move between
+them:
 
 | Tab | Question | What you get |
 | --- | --- | --- |
 | **Descriptive** | What happened? | Totals, the typical value, how much things vary, the change across the period, the biggest segment, and records worth a second look |
 | **Diagnostic** | Why did it happen? | Which segment moved the number and by how much (the parts add up to the whole), and which columns move together — described as association, because moving together is not proof of cause |
+| **Experiment** | Can we claim a cause? | Whether this data is entitled to a causal claim at all. If it records a control and a treatment group, the difference between them as a **range** — because one number implies a precision no sample has — and whether that range is wide enough to include no change. If it does not, a plain no, followed by the experiment that would settle it: how many observations per group, and the smallest change your existing rows could already detect |
 | **Predictive** | What will happen? | The next three periods, if the current pattern continues, with the accuracy this method achieved when tested against past periods it had not seen. Too little history and it tells you so instead of guessing |
 | **Prescriptive** | What should I do? | The options your data supports, what each is worth, a recommendation, and — stated plainly — the assumption behind the ranking and how close the call was |
 

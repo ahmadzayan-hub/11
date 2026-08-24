@@ -26,6 +26,7 @@ if FASTAPI_AVAILABLE:
 
     from server.app import create_app
 
+from server import analytics
 from server.backup import (BACKUP_VERSION, backup_counts, create_backup,
                            open_configured_store, restore_backup)
 from server.storage import TABLES
@@ -75,7 +76,10 @@ class BackupRestoreTestCase(unittest.TestCase):
         return open_configured_store(env={}, config_path=self.config_path)
 
     # -- helpers ----------------------------------------------------------
-    def advance_until(self, run_id, stop_states, limit=20):
+    def advance_until(self, run_id, stop_states, limit=None):
+        # One advance per task, plus slack: a short loop would
+        # 'fail' by simply not arriving.
+        limit = limit or len(analytics.PIPELINE) + 5
         run = None
         for _ in range(limit):
             run = self.client.post(f"/api/runs/{run_id}/advance").json()
@@ -168,7 +172,7 @@ class BackupRestoreTestCase(unittest.TestCase):
         self.assertEqual(
             len([t for t in resumed["tasks"] if t["state"] == "succeeded"]), 4)
         # A recovered run is not a museum piece: it continues to approval.
-        for _ in range(20):
+        for _ in range(len(analytics.PIPELINE) + 5):
             state = client.post(f"/api/runs/{run['id']}/advance").json()
             if state["state"] == "awaiting_approval":
                 break
@@ -302,7 +306,7 @@ class CrossDialectRestoreTestCase(unittest.TestCase):
             "goal": "Local work that must survive the move",
             "dataset_text": "team,sales\nA,100\nB,90\n",
             "dataset_name": "local.csv"}).json()
-        for _ in range(20):
+        for _ in range(len(analytics.PIPELINE) + 5):
             run = local.post(f"/api/runs/{run['id']}/advance").json()
             if run["state"] == "awaiting_approval":
                 break

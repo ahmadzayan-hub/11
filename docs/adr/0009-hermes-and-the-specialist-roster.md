@@ -1,6 +1,12 @@
 # ADR 0009 — Hermes, and how many specialists is enough
 
-Date: 2026-08-13 · Status: Accepted
+Date: 2026-08-13 · Status: Accepted, superseded in part by ADR 0010
+
+> The counts below are as of this record's date. ADR 0010 added a
+> twentieth stage (experiment and causal inference), making it twenty
+> stages and twenty-one tasks per run. The numbers are left as written:
+> an ADR records what was decided when, and editing it to match a later
+> state would destroy the only thing it is for.
 
 ## Context
 

@@ -17,6 +17,7 @@ if FASTAPI_AVAILABLE:
 
     from server.app import create_app
 
+from server import analytics
 from server.model_gateway import ModelGateway
 from server.runs import RunEngine
 from server.storage import TABLES, open_store
@@ -81,7 +82,7 @@ class WorkerTestCase(unittest.TestCase):
         state = self.client.get(f"/api/runs/{run['id']}").json()
         self.assertEqual(state["state"], "awaiting_approval")
         succeeded = [t for t in state["tasks"] if t["state"] == "succeeded"]
-        self.assertEqual(len(succeeded), 19)
+        self.assertEqual(len(succeeded), len(analytics.PIPELINE))
         self.assertIsNotNone(state["report"])
 
     def test_a_worker_stops_at_the_approval_gate_and_publishes_nothing(self):
@@ -231,7 +232,8 @@ class WorkerTestCase(unittest.TestCase):
         state = self.client.get(f"/api/runs/{run['id']}").json()
         self.assertTrue(state["paused"])
         self.assertLess(
-            len([t for t in state["tasks"] if t["state"] == "succeeded"]), 19)
+            len([t for t in state["tasks"] if t["state"] == "succeeded"]),
+            len(analytics.PIPELINE))
         # The lease is released, so resuming can be picked up again.
         self.assertIsNone(worker.store.get_run(run["id"])["lease_owner"])
         self.client.post(f"/api/runs/{run['id']}/resume")

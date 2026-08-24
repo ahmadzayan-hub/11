@@ -15,8 +15,9 @@ test('analytics run: goal to approved, published, evidence-backed report', async
   await expect(approval).toContainText('high')
   await expect(page.getByText('state: awaiting approval')).toBeVisible()
 
-  // Every specialist succeeded and the evidence is visible.
-  await expect(page.locator('.runtask--succeeded')).toHaveCount(19)
+  // Every specialist succeeded and the evidence is visible. Twenty
+  // stages; the twenty-first task is the publish gate, still waiting.
+  await expect(page.locator('.runtask--succeeded')).toHaveCount(20)
   await expect(
     page.locator('.runtasks').getByText('All validation checks passed', { exact: false }),
   ).toBeVisible()

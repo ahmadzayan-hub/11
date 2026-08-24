@@ -149,13 +149,13 @@ and 50,000 rows; an oversize file is rejected with its actual size.
 
 **Running**: a "Specialist pipeline" list, one row per agent, each with a
 state mark (pending · running · succeeded · failed · skipped) and a
-one-line summary that fills in as it completes. **Twenty rows**, so the
+one-line summary that fills in as it completes. **Twenty-one rows**, so the
 list needs to stay scannable at that length rather than assuming five:
 Planner, Data Source, Data Contract, Data Profiling, Data Quality,
 Privacy, Data Cleaning, Data Preparation, Segment Concentration, then
-the four analytics agents, then Anomaly, Prescriptive's Sensitivity
-check, Visualization, Provenance, Validation, Reporting, and the gated
-Publish. The panel names its orchestrator — **Hermes** — which sequences
+the four analytics agents with Experiment and Causal Inference among
+them, then Anomaly, Prescriptive's Sensitivity check, Visualization,
+Provenance, Validation, Reporting, and the gated Publish. The panel names its orchestrator — **Hermes** — which sequences
 them, holds the approval gate, and analyses nothing itself. Controls:
 Pause, Resume, Cancel.
 
@@ -172,11 +172,18 @@ question and writes its own report:
 They form a ladder — each uses the one before it — and the design should
 make that progression legible rather than presenting four peers.
 
-**Reports**: a tab per analytics type, each tab showing the type name and
-its question. The selected panel leads with the headline as a prominent
-callout, then the body, then a "How each figure was calculated" table
-(figure · value · method). Below the four sits the comprehensive report
-containing all of them.
+**Reports**: five tabs — one per analytics type, plus **Experiment**
+("Can we claim a cause?") sitting between Diagnostic and Predictive.
+Each tab shows its name and its question. The selected panel leads with
+the headline as a prominent callout, then the body, then a "How each
+figure was calculated" table (figure · value · method). Below them sits
+the comprehensive report containing all five.
+
+The Experiment tab is the one that most often says no — "no cause can be
+claimed from this data" — followed by the size of experiment that would
+settle it. Design it as a first-class answer, not as an error state: a
+refusal with a costed alternative is the most useful thing on the page,
+and styling it like a warning would teach people to skip it.
 
 **Charts** (four, all zero-based axes, all with alt text): total by
 segment (bar); the measure over time (line); **change by segment** with

@@ -460,11 +460,11 @@ export function RunsView() {
 
           {run.reports.length ? (
             <div className="card">
-              <h3 className="card__title">Reports by analytics type</h3>
+              <h3 className="card__title">Reports</h3>
               <div
                 className="reporttabs"
                 role="tablist"
-                aria-label="Analytics type"
+                aria-label="Report section"
                 onKeyDown={(event) => moveTabFocus(event, run.reports.map((s) => s.type))}
               >
                 {run.reports.map((section) => (

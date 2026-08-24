@@ -28,17 +28,26 @@ environment — not a replacement for Windows, macOS, or Linux.
   opens with a headline in plain business language — "Revenue is up 45%
   over the period", not "the mean increased by 2.3 standard deviations" —
   and statistical jargon in a claim or headline **fails validation**
-- **Nineteen governed specialists, orchestrated by Hermes** — planning,
+- **Association is never reported as cause** — a dedicated Experiment and
+  Causal Inference agent decides whether the data is *entitled* to a
+  causal claim. Where rows record assignment to a control and a treatment
+  group it compares them, reports each difference as a **range** rather
+  than a falsely precise number, widens that range when several groups are
+  compared, and flags a split too lopsided to have been random. Where they
+  do not — which is most business data — it refuses the causal claim and
+  computes the experiment that would settle it: how many observations per
+  group, and the smallest change the data already in hand could detect
+- **Twenty governed specialists, orchestrated by Hermes** — planning,
   ingestion, data contract, profiling, quality scoring, privacy scanning,
   cleaning, preparation, segment concentration, the four analytics
-  agents, anomaly detection, sensitivity testing, visualization,
-  provenance, independent validation, and reporting, then an
-  approval-gated publish. **Hermes sequences them and holds the gate; it
+  agents, causal inference, anomaly detection, sensitivity testing,
+  visualization, provenance, independent validation, and reporting, then
+  an approval-gated publish. **Hermes sequences them and holds the gate; it
   analyses nothing itself**, which is what keeps "no stage approves its
   own work" structural. Every stage computes something no other stage
-  computes (ADR 0009). Runs are durable, bounded tasks: pause, cancel, restart recovery,
-  truthful SVG charts, and a report where **every claim links to a
-  calculation**. Forecast accuracy is measured by backtesting, and a
+  computes (ADR 0009, ADR 0010). Runs are durable, bounded tasks: pause,
+  cancel, restart recovery, truthful SVG charts, and a report where
+  **every claim links to a calculation**. Forecast accuracy is measured by backtesting, and a
   forecast that could not be tested says so
 - **Approval-gated publishing** — reports publish into an
   **Obsidian-compatible vault** (`vault/`) with provenance frontmatter and
@@ -186,7 +195,7 @@ python main.py
 
 ```bash
 # Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker,
-# launcher, docs (270 tests)
+# launcher, docs (284 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -202,7 +211,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 270 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 284 Python tests, 23 frontend unit
 tests, and 38 end-to-end checks (37 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:

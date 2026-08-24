@@ -28,15 +28,16 @@ list as the stopping rule).
 | 10 | Segment Concentration Agent | Share per segment, Pareto coverage, Herfindahl index — the fact a total hides | no |
 | 11 | **Descriptive Analytics Agent** — *what happened?* | Totals, typical values, spread, period change, largest segment, unusual records | yes (no usable values) |
 | 12 | **Diagnostic Analytics Agent** — *why did it happen?* | Decomposes the change by segment (parts must sum to the whole) and measures which columns move together — association, never cause | no |
-| 13 | **Predictive Analytics Agent** — *what will happen?* | Trend fitted to history and extended, with accuracy measured by backtesting against held-out periods; declines to forecast below 4 periods | no |
-| 14 | Anomaly Detection Agent | Periods that break the fitted pattern (residuals beyond two standard deviations of the residuals) — distinct from an outlier against the average |
-| 15 | **Prescriptive Analytics Agent** — *what should I do?* | Enumerates options the data supplies, scores each under one stated assumption, recommends one and says what would change the answer | no |
-| 16 | Sensitivity Agent | Re-scores every option at 5%, 10% and 20% uplift and reports whether the recommendation survives, plus the break-even ratio against the runner-up | no |
-| 17 | Visualization Expert | Truthful chart specs (zero-based axes, alt text): totals by segment, trend, who-moved-it, history-and-forecast | no |
-| 18 | Provenance Agent | Builds snapshot → calculations → claims and checks it holds both ways: no claim citing missing evidence, and uncited calculations named | no |
-| 19 | Validation Expert | Reconciles totals and the change decomposition, row accounting, claim-evidence coverage, forecast accuracy declared, recommendations carry assumptions, claims free of statistical jargon; may reject, never rewrites | rejects → partially_completed |
-| 20 | Reporting Expert | One report per analytics type plus a comprehensive report embedding all four, with the claims-evidence matrix and limitations | no |
-| 21 | Knowledge Curator (vault publish) | Approval-gated write-back to the Obsidian vault with provenance frontmatter | approval required |
+| 13 | **Experiment and Causal Inference Agent** — *can we claim a cause?* | Decides whether the dataset supports a causal claim at all. With an assignment column: compares arms against a baseline, reports each difference as a range rather than a point, widens every range when several arms are compared, and flags a split too lopsided for random assignment. Without one: refuses the causal claim and computes the experiment that would settle it — observations needed per group, and the smallest change the existing rows could already detect | no |
+| 14 | **Predictive Analytics Agent** — *what will happen?* | Trend fitted to history and extended, with accuracy measured by backtesting against held-out periods; declines to forecast below 4 periods | no |
+| 15 | Anomaly Detection Agent | Periods that break the fitted pattern (residuals beyond two standard deviations of the residuals) — distinct from an outlier against the average | no |
+| 16 | **Prescriptive Analytics Agent** — *what should I do?* | Enumerates options the data supplies, scores each under one stated assumption, recommends one and says what would change the answer | no |
+| 17 | Sensitivity Agent | Re-scores every option at 5%, 10% and 20% uplift and reports whether the recommendation survives, plus the break-even ratio against the runner-up | no |
+| 18 | Visualization Expert | Truthful chart specs (zero-based axes, alt text): totals by segment, trend, who-moved-it, history-and-forecast | no |
+| 19 | Provenance Agent | Builds snapshot → calculations → claims and checks it holds both ways: no claim citing missing evidence, and uncited calculations named | no |
+| 20 | Validation Expert | Reconciles totals and the change decomposition, row accounting, claim-evidence coverage, forecast accuracy declared, recommendations carry assumptions, claims free of statistical jargon; may reject, never rewrites | rejects → partially_completed |
+| 21 | Reporting Expert | One report per analytics type plus a comprehensive report embedding all four, with the claims-evidence matrix and limitations | no |
+| 22 | Knowledge Curator (vault publish) | Approval-gated write-back to the Obsidian vault with provenance frontmatter | approval required |
 
 ## The four types form a ladder
 
@@ -46,11 +47,24 @@ and why the pipeline is sequential rather than parallel:
 ```
 Descriptive → Diagnostic → Predictive → Prescriptive
 (what?)       (why?)       (what next?)  (what to do?)
+                  │
+                  └── Experiment and Causal Inference
+                      (may any of this be called a cause?)
 ```
 
 The prescriptive agent's options come from the diagnostic decomposition
 and the predictive forecast; a recommendation with nothing underneath it
 would be an opinion.
+
+The causal agent is **not a fifth type**. It hangs off the diagnostic
+step because that is where the temptation appears: the moment a run says
+"revenue moves with discount depth", somebody is going to read it as
+"discounts raise revenue". It answers a different kind of question —
+not *what does the data say* but *what is this data entitled to claim* —
+and its usual answer is "not a cause, and here is the experiment that
+would settle it". It gets its own report and its own tab for the same
+reason it exists: a limitation buried at the bottom of somebody else's
+report is a limitation nobody reads.
 
 ## Business language is a contract, not a style
 
@@ -73,7 +87,7 @@ the reader is told and what the reader can check.
 - The model narrator never contributes numbers; its text is labelled with
   its source (`model` or `deterministic`) in the report.
 
-## Why nineteen stages and not more
+## Why twenty stages and not more
 
 Each stage above computes something no other stage computes, and each
 emits calculations a reader can recompute by hand from the method string
@@ -85,17 +99,28 @@ cost of a decorative agent is not compute — it is that every genuine
 stage becomes harder to trust when it sits in a list padded with
 theatre.
 
-Hermes is deliberately **not** one of the nineteen. It sequences, gates,
+Hermes is deliberately **not** one of the twenty. It sequences, gates,
 leases and recovers; it never produces a finding. Keeping the
 orchestrator out of the analysis list is what makes "no stage may
 approve its own work" a structural fact rather than a promise.
 
 ## Not implemented (honest scope)
 
-Statistical hypothesis testing, causal inference, seasonality models,
-true optimization, governance/PII, red-team, and cost agents are not
+Seasonality models, true optimization, red-team, and cost agents are not
 implemented — they require capabilities (inference libraries, LLM
-evaluation, PII models) that would be placeholders today.
+evaluation, billing relationships) that would be placeholders today.
+
+Causal inference is now **partly** implemented and the boundary is worth
+stating precisely, because "we do causal inference" is the kind of claim
+that gets believed. What ships (ADR 0010): a two-arm or multi-arm
+comparison with an uncertainty range, a multiple-comparison correction, a
+sample-ratio-mismatch check, and power/minimum-detectable-effect
+arithmetic — all from the standard library, all recomputable by hand from
+the method strings. What does **not** ship: any method for extracting a
+causal effect from observational data. No propensity scores, no
+difference-in-differences, no instrumental variables, no synthetic
+control. Where the data records no assignment, the agent's answer is
+"no", not an estimate with a wider range.
 
 The forecasting and recommendation now shipped are deliberately modest and
 say so in their own reports: a straight-line trend with backtested error,

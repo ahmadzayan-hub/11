@@ -349,7 +349,7 @@ class RunEngine:
         run = self._row(run_id)
         tasks = []
         charts, report, reports = [], None, []
-        questions = dict(analytics.ANALYTICS_TYPES)
+        questions = dict(analytics.REPORT_SECTIONS)
         for t in self.store.get_tasks(run_id):
             result = json.loads(t["result_json"]) if t["result_json"] else None
             tasks.append({"id": t["id"], "role": t["role"], "title": t["title"],

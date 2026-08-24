@@ -165,8 +165,9 @@ interface RunDetail {
   state: RunState; error: string | null
   created_at: string; updated_at: string
   paused: boolean
-  tasks: RunTask[]                       // 20 of them, in order
-  reports: Array<{ type: 'descriptive' | 'diagnostic' | 'predictive' | 'prescriptive'
+  tasks: RunTask[]                       // 21 of them, in order
+  reports: Array<{ type: 'descriptive' | 'diagnostic' | 'experiment'
+                         | 'predictive' | 'prescriptive'
                    question: string; title: string
                    headline: string      // the one sentence that leads the panel
                    content: string }>    // markdown
@@ -213,7 +214,7 @@ upload / paste). On file select, show name and row count *before*
 starting ("quarterly-sales.csv · 4 data rows"). Limits 2 MB and 50,000
 rows; reject oversize client-side with the actual size.
 
-**Pipeline:** 20 task rows with state marks and summaries filling in
+**Pipeline:** 21 task rows with state marks and summaries filling in
 live — design for that length, not for five. The panel is headed by the
 orchestrator, **Hermes**, which sequences the stages, holds the approval
 gate and recovers an interrupted run; it analyses nothing itself, and no
