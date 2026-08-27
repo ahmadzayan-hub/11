@@ -37,15 +37,23 @@ environment — not a replacement for Windows, macOS, or Linux.
   do not — which is most business data — it refuses the causal claim and
   computes the experiment that would settle it: how many observations per
   group, and the smallest change the data already in hand could detect
-- **Twenty governed specialists, orchestrated by Hermes** — planning,
+- **Every figure says what it measures and who owns that definition** —
+  a metric glossary (`metrics.json`) gives each metric a definition, an
+  owner, and optionally the arithmetic it must satisfy. The glossary
+  decides which column a run analyses; where it says nothing, the run
+  states plainly that its measure is undefined, and **validation fails a
+  run that stays quiet about it**. Where a definition is arithmetic over
+  columns present in the data — `revenue = unit_price × units` — every
+  row is checked against it and the ones that disagree are named
+- **Twenty-one governed specialists, orchestrated by Hermes** — planning,
   ingestion, data contract, profiling, quality scoring, privacy scanning,
-  cleaning, preparation, segment concentration, the four analytics
-  agents, causal inference, anomaly detection, sensitivity testing,
-  visualization, provenance, independent validation, and reporting, then
-  an approval-gated publish. **Hermes sequences them and holds the gate; it
+  cleaning, metric governance, preparation, segment concentration, the
+  four analytics agents, causal inference, anomaly detection, sensitivity
+  testing, visualization, provenance, independent validation, and
+  reporting, then an approval-gated publish. **Hermes sequences them and holds the gate; it
   analyses nothing itself**, which is what keeps "no stage approves its
   own work" structural. Every stage computes something no other stage
-  computes (ADR 0009, ADR 0010). Runs are durable, bounded tasks: pause,
+  computes (ADR 0009–0011). Runs are durable, bounded tasks: pause,
   cancel, restart recovery, truthful SVG charts, and a report where
   **every claim links to a calculation**. Forecast accuracy is measured by backtesting, and a
   forecast that could not be tested says so
@@ -115,10 +123,12 @@ and returns fresh state snapshots.
 │                          # backup/restore
 ├── scripts/               # serve.py · backup.py · restore.py · worker.py
 ├── config.json            # User-editable settings
+├── metrics.example.json   # Metric glossary template (copy to metrics.json)
 ├── data/memory.json       # Persistent memory (starts empty)
 ├── tests/                 # Python unittest suite (agent, utils, API,
-│                          # runs, analytics, auth, quotas, backups,
-│                          # worker, model gateway, launcher, docs)
+│                          # runs, analytics, metric glossary, auth,
+│                          # quotas, backups, worker, model gateway,
+│                          # launcher, docs)
 ├── frontend/
 │   ├── src/
 │   │   ├── app/           # Shell, store, theme
@@ -194,8 +204,8 @@ python main.py
 ## Testing
 
 ```bash
-# Python: agent, utils, API, runs, analytics, auth, quotas, backups, worker,
-# launcher, docs (284 tests)
+# Python: agent, utils, API, runs, analytics, metrics, auth, quotas,
+# backups, worker, launcher, docs (324 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -211,7 +221,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 284 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 324 Python tests, 23 frontend unit
 tests, and 38 end-to-end checks (37 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:

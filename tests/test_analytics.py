@@ -14,9 +14,10 @@ import unittest
 from server import analytics
 
 
-def run_pipeline(dataset_text, goal="Analyze the data", name="test.csv", gateway=None):
+def run_pipeline(dataset_text, goal="Analyze the data", name="test.csv",
+                 gateway=None, glossary=None):
     ctx = {"goal": goal, "dataset_name": name, "dataset_text": dataset_text,
-           "run_id": "test-run"}
+           "run_id": "test-run", "glossary": glossary}
     results = {}
     for role, stage in analytics.PIPELINE:
         result = (stage(ctx, gateway=gateway)
@@ -385,6 +386,157 @@ class GovernedSpecialistsTestCase(unittest.TestCase):
             for dependency in dependencies:
                 self.assertLess(order.index(dependency), order.index(stage),
                                 f"{stage} runs before {dependency}")
+
+
+def priced_dataset(revenues=None):
+    """Twelve rows carrying the parts of their own definition, so the
+    glossary's `unit_price × units` can be checked against them."""
+    lines = ["month,region,unit_price,units,revenue"]
+    for index in range(12):
+        price, units = 10.0 + index, 100 + index
+        revenue = revenues[index] if revenues else round(price * units, 2)
+        lines.append(f"2025-{index + 1:02d},North,{price},{units},{revenue}")
+    return "\n".join(lines) + "\n"
+
+
+def book(entries):
+    return {"metrics": entries, "problems": []}
+
+
+def entry(**overrides):
+    base = {"name": "revenue", "title": "Net Revenue",
+            "definition": "Invoiced amount after discounts.",
+            "owner": "Finance — Group Controller", "unit": "AED",
+            "certified": True, "certified_on": "2026-01-31",
+            "columns": ["revenue"],
+            "formula": {"multiply": ["unit_price", "units"]}}
+    base.update(overrides)
+    return base
+
+
+class MetricGovernanceTestCase(unittest.TestCase):
+    """Which number the report is about, and who says so.
+
+    The choice of measure used to be a silent guess inside the preparer.
+    These tests are about it being a decision instead: reported, with a
+    reason, and checkable against the definition it claims to satisfy.
+    """
+
+    def test_without_a_glossary_the_report_says_the_measure_is_undefined(self):
+        ctx, results = run_pipeline(analytics.sample_dataset())
+        governance = ctx["governance"]
+        self.assertFalse(governance["certified"])
+        self.assertFalse(governance["glossary_configured"])
+        self.assertEqual(governance["source"], "column name")
+        limitations = [c for c in results["governance"]["claims"]
+                       if c["type"] == "limitation"]
+        self.assertTrue(limitations)
+        self.assertIn("not as a defined metric", limitations[0]["text"])
+
+    def test_a_certified_metric_is_named_with_its_owner(self):
+        ctx, results = run_pipeline(priced_dataset(), glossary=book([entry()]))
+        governance = ctx["governance"]
+        self.assertTrue(governance["certified"])
+        self.assertEqual(governance["owner"], "Finance — Group Controller")
+        self.assertEqual(governance["source"], "certified glossary metric")
+        facts = [c["text"] for c in results["governance"]["claims"]
+                 if c["type"] == "fact"]
+        self.assertTrue(any("Finance — Group Controller" in text
+                            for text in facts))
+
+    def test_the_glossary_decides_the_measure_not_the_column_name(self):
+        """A hard-coded preference for a column called "revenue" is a
+        guess. A glossary entry is a decision somebody made."""
+        units = entry(name="units_sold", title="Units Sold",
+                      columns=["units"], formula=None)
+        ctx, _ = run_pipeline(priced_dataset(), glossary=book([units]))
+        self.assertEqual(ctx["governance"]["measure"], "units")
+        self.assertEqual(ctx["preparer"]["measure"], "units")
+
+    def test_a_column_that_breaks_its_own_definition_is_a_finding(self):
+        broken = [round((10.0 + i) * (100 + i), 2) for i in range(12)]
+        broken[3] = 999999.0
+        ctx, results = run_pipeline(priced_dataset(broken),
+                                    glossary=book([entry()]))
+        conformance = ctx["governance"]["conformance"]
+        self.assertEqual(conformance["checked"], 12)
+        self.assertEqual(conformance["breach_count"], 1)
+        self.assertEqual(conformance["breaches"][0]["row"], 4)
+        warnings = [c for c in results["governance"]["claims"]
+                    if c["type"] == "warning"]
+        self.assertTrue(warnings)
+        self.assertIn("does not match its own definition", warnings[0]["text"])
+        failed = [c for c in results["governance"]["quality_checks"]
+                  if not c["passed"]]
+        self.assertEqual([c["name"] for c in failed],
+                         ["measure_matches_its_definition"])
+
+    def test_a_definition_the_data_satisfies_passes_its_check(self):
+        ctx, results = run_pipeline(priced_dataset(), glossary=book([entry()]))
+        self.assertEqual(ctx["governance"]["conformance"]["rate"], 1.0)
+        self.assertTrue(all(c["passed"]
+                            for c in results["governance"]["quality_checks"]))
+
+    def test_a_definition_that_cannot_be_checked_here_says_so(self):
+        """The sample data has no unit_price column: "not checkable" is
+        not the same statement as "checked and sound"."""
+        ctx, _ = run_pipeline(analytics.sample_dataset(),
+                              glossary=book([entry()]))
+        self.assertIsNone(ctx["governance"]["conformance"])
+        self.assertIn("could not be checked",
+                      ctx["governance"]["notes_markdown"])
+
+    def test_a_broken_glossary_is_reported_rather_than_ignored(self):
+        """Someone believes those definitions are in force."""
+        _, results = run_pipeline(
+            analytics.sample_dataset(),
+            glossary={"metrics": [], "problems": ["metric “revenue” has no owner."]})
+        failed = [c for c in results["governance"]["quality_checks"]
+                  if not c["passed"]]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("no owner", failed[0]["detail"])
+        self.assertTrue(any(c["type"] == "warning"
+                            for c in results["governance"]["claims"]))
+
+    def test_a_second_defined_column_is_named_as_the_road_not_taken(self):
+        both = entry(columns=["revenue", "units"], formula=None)
+        ctx, results = run_pipeline(priced_dataset(), glossary=book([both]))
+        self.assertEqual(ctx["governance"]["also_defined"], ["units"])
+        limitations = [c["text"] for c in results["governance"]["claims"]
+                       if c["type"] == "limitation"]
+        self.assertTrue(any("was not analysed" in text for text in limitations))
+
+    def test_the_validator_requires_the_measure_to_be_certified_or_declared(self):
+        ctx, _ = run_pipeline(analytics.sample_dataset())
+        check = next(c for c in ctx["validator_result"]["quality_checks"]
+                     if c["name"] == "measure_is_certified_or_declared_uncertified")
+        self.assertTrue(check["passed"])
+        self.assertIn("no certified definition", check["detail"])
+
+        # Silence is the failure the check exists for: strip the stage's
+        # declaration and the run must stop passing.
+        ctx["governance_result"]["claims"] = []
+        ctx["governance"]["certified"] = False
+        recheck = analytics.validator(ctx)
+        failed = next(c for c in recheck["quality_checks"]
+                      if c["name"] == "measure_is_certified_or_declared_uncertified")
+        self.assertFalse(failed["passed"])
+        self.assertEqual(recheck["status"], "failed")
+
+    def test_the_comprehensive_report_says_what_it_measures(self):
+        ctx, results = run_pipeline(priced_dataset(), glossary=book([entry()]))
+        combined = results["reporter"]["output"]["report_markdown"]
+        self.assertIn("## What this report measures", combined)
+        self.assertIn("Net Revenue", combined)
+        self.assertIn("Finance — Group Controller", combined)
+        self.assertIn("unit_price × units", combined)
+
+    def test_governance_claims_are_in_business_language(self):
+        for glossary in (None, book([entry()])):
+            _, results = run_pipeline(priced_dataset(), glossary=glossary)
+            for claim in results["governance"]["claims"]:
+                self.assertEqual(analytics._jargon_in(claim["text"]), [],
+                                 claim["text"])
 
 
 def ab_dataset(control, treatment, extra=None, column="variant"):

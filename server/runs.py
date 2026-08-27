@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from server import analytics, quota
+from server import analytics, metrics, quota
 
 RUN_STATES = {"queued", "running", "awaiting_approval", "verifying",
               "completed", "partially_completed", "failed", "cancelled"}
@@ -54,13 +54,21 @@ def _stamp(moment):
 
 
 class RunEngine:
-    def __init__(self, store, vault_dir, gateway, limits=None):
+    def __init__(self, store, vault_dir, gateway, limits=None, glossary=None):
         self.store = store
         self.vault_dir = Path(vault_dir)
         self.gateway = gateway
         # None disables quota enforcement entirely (the CLI and tests that
         # are not about quotas); the API always passes limits.
         self.limits = limits
+        # The metric glossary is read once at startup rather than per run,
+        # so every run in a process agrees about what a metric means and
+        # editing the file mid-run cannot change a report halfway through.
+        # None means "read the configured file"; pass a dict to override.
+        if glossary is None:
+            entries, problems = metrics.load_glossary()
+            glossary = {"metrics": entries, "problems": problems}
+        self.glossary = glossary
 
     # -- state helpers ----------------------------------------------------
     def _set_run_state(self, run_id, new_state, error=None):
@@ -144,7 +152,8 @@ class RunEngine:
 
     def _context(self, run, tasks):
         ctx = {"goal": run["goal"], "dataset_text": self._dataset_text(run),
-               "dataset_name": run["dataset_name"], "run_id": run["id"]}
+               "dataset_name": run["dataset_name"], "run_id": run["id"],
+               "glossary": self.glossary}
         for task in tasks:
             if task["state"] == "succeeded" and task["result_json"]:
                 result = json.loads(task["result_json"])

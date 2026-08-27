@@ -22,6 +22,8 @@ import math
 import re
 import statistics
 
+from server import metrics as glossary
+
 MAX_ROWS = 50_000
 MAX_DATASET_BYTES = 2_000_000
 
@@ -305,12 +307,187 @@ def cleaner(ctx):
     )
 
 
+def governance(ctx):
+    """Metric Governance Agent — is this measure defined, and who owns it?
+
+    Decides which column the run analyses and says why, which used to be
+    a silent guess inside the preparer. Where a glossary defines the
+    metric it also checks the column against its own definition: a
+    "revenue" column that does not equal price × units is a finding about
+    the business, not a rounding detail.
+    """
+    numeric_columns = ctx["profiler"]["numeric_columns"]
+    rows = ctx["cleaner"]["rows"]
+    book = ctx.get("glossary") or {}
+    metrics, problems = book.get("metrics", []), book.get("problems", [])
+
+    measure, metric, source, candidates = glossary.resolve(
+        metrics, ctx["collector"]["columns"], numeric_columns)
+    calcs = [{"id": "c_gov_defined", "name": "metrics_in_glossary",
+              "value": len(metrics),
+              "method": "entries accepted from metrics.json"}]
+    claims, checks, lines = [], [], []
+
+    # A broken glossary is worse than none: someone believes it is in
+    # force. It never fails the run, but it never passes quietly either.
+    for index, problem in enumerate(problems):
+        checks.append({"name": f"glossary_entry_{index + 1}_is_usable",
+                       "passed": False, "detail": problem})
+    if problems:
+        claims.append({
+            "id": "cl_gov_broken", "type": "warning",
+            "text": f"The metric glossary has {len(problems)} problem(s) and "
+                    "those definitions were not applied, so figures in this "
+                    "report may not match the definitions somebody believes "
+                    "are in force.",
+            "evidence": ["c_gov_defined"], "status": "verified"})
+
+    if metric:
+        calcs.append({"id": "c_gov_certified", "name": "measure_is_certified",
+                      "value": 1 if metric["certified"] else 0,
+                      "method": f"“{measure}” resolved to glossary metric "
+                                f"“{metric['name']}”"})
+        owner = metric["owner"] or "nobody named"
+        if metric["certified"]:
+            claims.append({
+                "id": "cl_gov_certified", "type": "fact",
+                "text": f"“{measure}” is the certified metric {metric['title']}, "
+                        f"owned by {owner}: {metric['definition']}",
+                "evidence": ["c_gov_certified"], "status": "verified"})
+        else:
+            claims.append({
+                "id": "cl_gov_uncertified", "type": "limitation",
+                "text": f"“{measure}” is defined in the glossary as "
+                        f"{metric['title']} but has not been certified, so no "
+                        "one has signed off that this is the agreed definition.",
+                "evidence": ["c_gov_certified"], "status": "verified"})
+        lines.append(f"**{metric['title']}** — {metric['definition']}")
+        lines.append("")
+        lines.append(f"- Owner: {owner}")
+        lines.append(f"- Certified: {'yes' if metric['certified'] else 'no'}"
+                     + (f" ({metric['certified_on']})" if metric["certified_on"]
+                        else ""))
+        if metric["unit"]:
+            lines.append(f"- Unit: {metric['unit']}")
+        if metric["formula"]:
+            lines.append(f"- Defined as: {glossary.formula_text(metric['formula'])}")
+    else:
+        claims.append({
+            "id": "cl_gov_undefined", "type": "limitation",
+            "text": f"“{measure}” is analysed as a column, not as a defined "
+                    "metric: no glossary entry says what it means or who owns "
+                    "it. These figures describe that column and cannot be "
+                    "reconciled against an agreed definition.",
+            "evidence": ["c_gov_defined"], "status": "verified"})
+        lines.append(f"This run analyses **{measure}** because it was chosen by "
+                     f"{source}. No definition exists for it: nothing here says "
+                     "what it means, who owns it, or how it should be computed.")
+        if not metrics:
+            lines.append("")
+            lines.append("No metric glossary is configured. `metrics.example.json` "
+                         "shows the format; a definition becomes governance when "
+                         "someone is named as its owner.")
+
+    # The definition as arithmetic, checked against the data that claims
+    # to satisfy it. This is the part a document cannot do.
+    conformance = glossary.conformance(metric, rows, measure) if metric else None
+    if conformance:
+        calcs.append({"id": "c_gov_conformance", "name": "definition_conformance",
+                      "value": conformance["rate"],
+                      "method": f"rows where {measure} equals "
+                                f"{glossary.formula_text(metric['formula'])} "
+                                f"within 0.5%, over {conformance['checked']} "
+                                "checked rows"})
+        holds = conformance["rate"] == 1.0
+        checks.append({
+            "name": "measure_matches_its_definition", "passed": holds,
+            "detail": (f"{conformance['matching']}/{conformance['checked']} rows "
+                       f"match {glossary.formula_text(metric['formula'])}"
+                       + ("" if holds else
+                          f"; {conformance['breach_count']} do not"))})
+        if holds:
+            claims.append({
+                "id": "cl_gov_conforms", "type": "fact",
+                "text": f"Every one of the {conformance['checked']} checked rows "
+                        f"has {measure} equal to its definition, so the recorded "
+                        "figures and the agreed formula agree.",
+                "evidence": ["c_gov_conformance"], "status": "verified"})
+        else:
+            worst = conformance["breaches"][0]
+            claims.append({
+                "id": "cl_gov_breach", "type": "warning",
+                "text": f"{conformance['breach_count']} of "
+                        f"{conformance['checked']} rows record a {measure} that "
+                        f"does not match its own definition. The largest gap is "
+                        f"{abs(worst['gap']):,.2f} on row {worst['row']}, which "
+                        f"records {worst['recorded']:,.2f} where the definition "
+                        f"gives {worst['defined']:,.2f}. Every total built on "
+                        "this column inherits that gap.",
+                "evidence": ["c_gov_conformance"], "status": "verified"})
+        lines += ["", f"### Does the data match the definition?", "",
+                  f"{conformance['matching']} of {conformance['checked']} rows "
+                  f"match. "
+                  + ("Nothing to explain."
+                     if holds else
+                     f"{conformance['breach_count']} do not, largest first:")]
+        if not holds:
+            lines += ["", "| Row | Recorded | Definition says | Gap |",
+                      "| --- | --- | --- | --- |"]
+            lines += [f"| {b['row']} | {b['recorded']:,.2f} | {b['defined']:,.2f} "
+                      f"| {b['gap']:+,.2f} |" for b in conformance["breaches"]]
+        if conformance["skipped"]:
+            lines += ["", f"{conformance['skipped']} row(s) could not be checked "
+                      "because a value the definition needs was missing."]
+    elif metric and metric["formula"]:
+        lines += ["", "The definition's inputs are not in this dataset, so the "
+                  "column could not be checked against its own formula. That is "
+                  "not the same as checking it and finding it sound."]
+
+    # More than one column answering to a glossary name is how two
+    # correct reports disagree.
+    others = [c["column"] for c in candidates if c["column"] != measure]
+    if others:
+        calcs.append({"id": "c_gov_candidates", "name": "columns_matching_a_metric",
+                      "value": len(candidates),
+                      "method": "numeric columns named by a glossary metric"})
+        claims.append({
+            "id": "cl_gov_ambiguous", "type": "limitation",
+            "text": f"{len(candidates)} columns in this dataset are named by a "
+                    f"glossary metric. This run analysed “{measure}”; "
+                    f"{', '.join(others)} was not analysed, so a report on it "
+                    "would show different figures for the same question.",
+            "evidence": ["c_gov_candidates"], "status": "verified"})
+        lines += ["", f"Also present and defined: {', '.join(others)}. This run "
+                  f"analysed “{measure}”."]
+
+    summary = (f"Measure “{measure}” ({source})"
+               + (f": certified {metric['title']}, owned by {metric['owner']}."
+                  if metric and metric["certified"] else
+                  f": glossary metric {metric['title']}, not certified."
+                  if metric else
+                  ", not defined in any glossary."))
+    if conformance and conformance["rate"] < 1.0:
+        summary += (f" {conformance['breach_count']} row(s) do not match the "
+                    "definition.")
+    return _result(
+        "succeeded", summary,
+        output={"measure": measure, "source": source,
+                "metric": metric, "certified": bool(metric and metric["certified"]),
+                "owner": metric["owner"] if metric else None,
+                "glossary_configured": bool(metrics),
+                "conformance": conformance,
+                "also_defined": others,
+                "notes_markdown": "\n".join(lines)},
+        calculations=calcs, claims=claims, checks=checks)
+
+
 def preparer(ctx):
     rows = ctx["cleaner"]["rows"]
     numeric_columns = ctx["profiler"]["numeric_columns"]
     columns = ctx["collector"]["columns"]
-    measure = next((c for c in numeric_columns if c.lower() in
-                    ("revenue", "sales", "amount", "value", "total")), numeric_columns[0])
+    # Which number this run is about was decided by the governance stage,
+    # on the record and with a reason. This stage no longer guesses.
+    measure = ctx["governance"]["measure"]
     date_col = next((c for c in columns if c.lower() in
                      ("month", "date", "period", "week", "year")), None)
     group_col = next((c for c in columns
@@ -1885,6 +2062,24 @@ def validator(ctx):
                               "A forecast was made without measuring or declaring "
                               "its accuracy.")})
 
+    # Every figure in the report is about one column. Whether that column
+    # means anything agreed is not optional information.
+    measured = ctx.get("governance", {})
+    if measured:
+        certified = measured.get("certified")
+        # Uncertified is allowed; uncertified and unsaid is not.
+        declared = any(cl["type"] == "limitation" for cl in
+                       ctx.get("governance_result", {}).get("claims", []))
+        checks.append({
+            "name": "measure_is_certified_or_declared_uncertified",
+            "passed": bool(certified or declared),
+            "detail": (f"“{measured.get('measure')}” is a certified metric "
+                       f"owned by {measured.get('owner')}." if certified else
+                       "The report states that the measure carries no certified "
+                       "definition." if declared else
+                       "The measure is uncertified and the report does not say "
+                       "so.")})
+
     # Recommendations are only honest with their assumptions attached.
     recommendations = [cl for cl in all_claims if cl["type"] == "recommendation"]
     assumptions = [cl for cl in all_claims if cl["type"] == "assumption"]
@@ -1976,7 +2171,10 @@ def reporter(ctx):
     # The boundary question sits under the table rather than in it: it is
     # not a fifth type, it is the check on what the four may be used for.
     lines += ["", f"**Can we claim a cause?** {ctx['experiment_result']['summary']}",
+              "", "## What this report measures",
+              ctx["governance"]["notes_markdown"],
               "", "## Data quality, privacy and provenance",
+              ctx["governance_result"]["summary"],
               ctx["quality_result"]["summary"],
               ctx["contract_result"]["summary"],
               ctx["profiler_result"]["summary"], ctx["cleaner_result"]["summary"],
@@ -2051,6 +2249,9 @@ PIPELINE = [
     ("quality", quality),
     ("privacy", privacy),
     ("cleaner", cleaner),
+    # What number is this run about, and who says so? Decided
+    # here, on the record, before anything is computed from it.
+    ("governance", governance),
     ("preparer", preparer),
     ("segments", segments),
     # The maturity ladder: each type consumes the ones before it.
@@ -2071,7 +2272,8 @@ PIPELINE = [
 
 # Stages whose claims and calculations the validator audits.
 EVIDENCE_STAGES = ("collector", "contract", "profiler", "quality", "privacy",
-                   "cleaner", "preparer", "segments", "descriptive", "diagnostic",
+                   "cleaner", "governance", "preparer", "segments", "descriptive",
+                   "diagnostic",
                    "experiment", "predictive", "anomaly", "prescriptive",
                    "sensitivity", "lineage")
 
@@ -2092,6 +2294,7 @@ ROLE_TITLES = {
     "quality": "Data Quality Agent",
     "privacy": "Privacy Agent",
     "cleaner": "Data Cleaning Agent",
+    "governance": "Metric Governance Agent — is this measure defined and owned?",
     "preparer": "Data Preparation Agent",
     "segments": "Segment Concentration Agent",
     "descriptive": "Descriptive Analytics Agent — what happened?",

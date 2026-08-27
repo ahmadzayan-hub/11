@@ -111,17 +111,66 @@ Open **Runs** to turn a goal into a governed analytics pipeline. Choose
 the bundled sample sales dataset, upload a CSV file, or paste one (header
 row first, up to 2 MB / 50,000 rows), then start the run. Uploading the
 same file twice stores it once, and a previous upload can be re-analysed
-without sending it again. Twenty specialist agents execute in order,
+without sending it again. Twenty-one specialist agents execute in order,
 sequenced by **Hermes**, the orchestrator — planning, ingestion, data
-contract, profiling, quality scoring, privacy scanning, cleaning,
-preparation, segment concentration, the four analytics agents, causal
-inference, anomaly detection, sensitivity testing, visualization,
-provenance, validation, and reporting. Hermes runs the stages, holds the
+contract, profiling, quality scoring, privacy scanning, cleaning, metric
+governance, preparation, segment concentration, the four analytics
+agents, causal inference, anomaly detection, sensitivity testing,
+visualization, provenance, validation, and reporting. Hermes runs the stages, holds the
 approval gate, and recovers an interrupted run; it never analyses
 anything itself. You can
 **Pause**, **Resume**, or **Cancel** at any time. Pausing is
 recorded on the server, so it holds across a refresh and applies to a
 background worker too, not just the tab you clicked in.
+
+### Defining what a number means
+
+By default a run picks the column it analyses by its name — a column
+called `revenue`, or failing that the first numeric column — and the
+report says which rule applied. That is a guess, and the report calls it
+one: "this run analyses **revenue** because it was chosen by column name.
+No definition exists for it."
+
+To replace the guess with a decision, copy `metrics.example.json` to
+`metrics.json` and describe your metrics:
+
+```json
+{
+  "version": 1,
+  "metrics": [
+    {
+      "name": "revenue",
+      "title": "Net Revenue",
+      "definition": "Invoiced amount after discounts, excluding tax and shipping.",
+      "owner": "Finance — Group Controller",
+      "certified": true,
+      "columns": ["revenue", "net_revenue"],
+      "formula": { "multiply": ["unit_price", "units"] }
+    }
+  ]
+}
+```
+
+What each part buys you:
+
+- **definition and owner** appear in every report, so the person
+  approving it can see whose definition they are publishing. A metric
+  marked `certified` must name an owner — certification with nobody
+  accountable is a rubber stamp, and the file is rejected with a reason.
+- **columns** decides which column the run analyses, replacing the name
+  guess. If two of them are in the same dataset, the report names the one
+  it analysed and the one it did not.
+- **formula** is optional and is the part a document cannot do. Where its
+  inputs are in the data, every row is checked: a `revenue` that does not
+  equal `unit_price × units` is reported, with the worst rows and the
+  size of each gap. One operation only — `sum`, `multiply`, `subtract`,
+  `divide` — so anyone can check a row with a calculator.
+
+No glossary ships with the project, because certifying a metric is a
+statement about *your* organisation and a default owner would be an
+invented one. Runs without a glossary work exactly as before and say
+plainly that their measure is undefined. The file is read when the server
+starts, so restart it after an edit.
 
 ### The four questions, and the one that guards them
 

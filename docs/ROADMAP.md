@@ -92,7 +92,16 @@ facts reach the narrator.
 - **Metric governance:** business glossary, certified KPI workflow with
   ownership, fiscal calendars, slowly changing dimensions, schema
   evolution and impact analysis, row/column-level security, entity
-  resolution.
+  resolution. **Partly done (ADR 0011):** a file-based glossary gives
+  each metric a definition, a named owner, a certification flag and
+  optionally the arithmetic it must satisfy; the glossary decides which
+  column a run analyses, the choice and its reason are reported, every
+  row is checked against a formula whose inputs are present, and
+  validation fails a run whose measure is uncertified and unsaid.
+  **Remaining:** per-tenant glossaries and an editing surface (the file
+  is process-wide and read at startup), fiscal calendars, slowly changing
+  dimensions, schema-evolution impact analysis, row/column-level
+  security, and entity resolution.
 - **Experimentation and causal inference:** power analysis, A/B and
   sequential testing, multiple-testing control, sample-ratio-mismatch
   detection, explicit confounding and counterfactual limitations.
@@ -128,11 +137,12 @@ facts reach the narrator.
 ## Additional governed capabilities (no decorative agents)
 
 Seven specialists were added in ADR 0009 — data contract, data quality,
-privacy, segment concentration, anomaly, sensitivity, and provenance —
-and an eighth in ADR 0010: experiment and causal inference. Each was
-admitted on the test that it computes something no other stage computes.
-The roster is twenty stages plus the publish gate, orchestrated by
-**Hermes**, which analyses nothing itself. The rule was
+privacy, segment concentration, anomaly, sensitivity, and provenance — an
+eighth in ADR 0010 (experiment and causal inference) and a ninth in ADR
+0011 (metric governance). Each was admitted on the test that it computes
+something no other stage computes. The roster is twenty-one stages plus
+the publish gate, orchestrated by **Hermes**, which analyses nothing
+itself. The rule was
 never "few agents"; it was "no agent that only rephrases another".
 
 The typed contracts below remain outstanding:

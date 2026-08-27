@@ -12,7 +12,12 @@ placeholder controls — absent capabilities have no UI.
    a boundary worth knowing:
    - **Diagnostic** decomposes change by segment (exact arithmetic) and
      measures which columns move together. It does **not** establish
-     cause; no controlled comparison or causal inference is performed.
+     cause. The separate Experiment and Causal Inference agent
+     (ADR 0010) decides whether a causal claim is available at all: it
+     compares recorded control/treatment groups and refuses the claim
+     otherwise. It estimates nothing from observational data — no
+     propensity scores, difference-in-differences, instrumental
+     variables, or synthetic control — and no sequential testing.
    - **Predictive** fits a straight-line trend to the historical periods
      and extends it, with accuracy measured by backtesting against
      held-out periods. There is no seasonality model, no machine
@@ -24,7 +29,10 @@ placeholder controls — absent capabilities have no UI.
      each with the same 10% improvement assumption. That ranks where the
      leverage is; it is not an optimizer and knows nothing about cost,
      capacity, or feasibility.
-   - No statistical hypothesis testing is performed anywhere.
+   - Comparison between recorded experiment groups reports a range and
+     whether it includes no-change (ADR 0010). No test is applied
+     anywhere else: the descriptive, diagnostic, predictive and
+     prescriptive stages are arithmetic, not inference.
 3. The optional narrator (Ollama, Anthropic, or Groq) only phrases
    already-verified facts and never receives the dataset. The wire
    contract for each provider is tested against a local HTTP server —
@@ -68,7 +76,15 @@ required local files. Both behaviors are covered by tests
    device on that network can read and change the saved memory. The
    launcher prints this at start-up and `--local-only` opts out, but
    nothing enforces it — a laptop on café Wi-Fi is an open app.
-6. Execution is client-stepped by default: runs advance while the Runs
+6. The metric glossary (ADR 0011) is a file, not a table: it is
+   process-wide, so a hosted install cannot give each tenant its own,
+   and it is read once at server start, so an edit does not reach a
+   running process until it restarts. Its formula language is one
+   operation over column names — deliberately less than a metric layer,
+   so a definition stays checkable by hand. No glossary ships with the
+   repository; an unconfigured install analyses an undefined column and
+   says so in every report.
+7. Execution is client-stepped by default: runs advance while the Runs
    view is open. A background worker (`python scripts/worker.py`) can
    advance them server-side with no browser, using database leases with
    heartbeats (ADR 0006), but **nothing starts it automatically** and
@@ -76,20 +92,20 @@ required local files. Both behaviors are covered by tests
    deployments there keep the client-stepped path. One worker advances
    one run at a time; parallelism means running more workers. A
    paused or interrupted run resumes from its durable state either way.
-7. The repository is configured to deploy to Vercel as a full-stack
+8. The repository is configured to deploy to Vercel as a full-stack
    project (static frontend + Python function). **No deployment has been
    performed or verified** — importing the repo and setting the
    credentials are owner steps. Without `DATABASE_URL` a deployment
    falls back to ephemeral per-instance storage. See
    docs/VERCEL_DEPLOYMENT.md.
-8. Android support is a verified installable PWA; a native Capacitor
+9. Android support is a verified installable PWA; a native Capacitor
    project is documented but not shipped (no Android SDK available to
    build or test one honestly).
-9. Obsidian integration is approval-gated write-back into a vault
+10. Obsidian integration is approval-gated write-back into a vault
     folder; reading/sync/retrieval from a vault is not implemented.
-10. Interface language is English; the `language` preference is recorded
+11. Interface language is English; the `language` preference is recorded
     but does not translate the UI. No RTL support yet.
-11. Backups are on-demand: `scripts/backup.py` produces a verified,
+12. Backups are on-demand: `scripts/backup.py` produces a verified,
     restorable backup (the drill in `tests/test_backup.py` destroys the
     database and rebuilds it on every push), but **nothing schedules
     it**, so the recovery point objective is "whenever it was last run".
@@ -101,13 +117,13 @@ required local files. Both behaviors are covered by tests
     written (fine at the 2 MB dataset limit, not at hundreds of
     megabytes), and in local mode `data/memory.json` lives outside the
     database and must be backed up separately.
-12. Usage is bounded per owner (runs/day, dataset count, dataset bytes)
+13. Usage is bounded per owner (runs/day, dataset count, dataset bytes)
     but **no cost in currency is tracked**: there is no billing
     relationship, model tokens are not counted, and serverless execution
     time is not measured. `/api/usage` names those gaps rather than
     hiding them. The daily window is calendar-based (midnight UTC), so a
     burst either side of midnight can exceed the intended daily rate.
-13. Dataset ingestion is CSV only — uploaded as a file or pasted, up to
+14. Dataset ingestion is CSV only — uploaded as a file or pasted, up to
     2 MB and 50,000 rows, held in the database rather than object
     storage. XLSX, JSON, Parquet, and database connectors are not
     implemented, and analysis is in-memory (no DuckDB/Polars), so
