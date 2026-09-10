@@ -84,7 +84,15 @@ required local files. Both behaviors are covered by tests
    so a definition stays checkable by hand. No glossary ships with the
    repository; an unconfigured install analyses an undefined column and
    says so in every report.
-7. Execution is client-stepped by default: runs advance while the Runs
+7. Crash recovery is drilled, not assumed (ADR 0012): connection loss,
+   a worker killed with SIGKILL mid-stage, and the engine rebuilt
+   mid-run are automated against PostgreSQL in CI. A **full database
+   outage** is not — CI's database is a service container the test
+   process cannot stop — so that drill was executed by hand once, with
+   its measurements recorded in the ADR. Not covered anywhere: network
+   partition, failover (there is one database and no standby), and
+   corruption as opposed to unavailability.
+8. Execution is client-stepped by default: runs advance while the Runs
    view is open. A background worker (`python scripts/worker.py`) can
    advance them server-side with no browser, using database leases with
    heartbeats (ADR 0006), but **nothing starts it automatically** and
@@ -92,20 +100,20 @@ required local files. Both behaviors are covered by tests
    deployments there keep the client-stepped path. One worker advances
    one run at a time; parallelism means running more workers. A
    paused or interrupted run resumes from its durable state either way.
-8. The repository is configured to deploy to Vercel as a full-stack
+9. The repository is configured to deploy to Vercel as a full-stack
    project (static frontend + Python function). **No deployment has been
    performed or verified** — importing the repo and setting the
    credentials are owner steps. Without `DATABASE_URL` a deployment
    falls back to ephemeral per-instance storage. See
    docs/VERCEL_DEPLOYMENT.md.
-9. Android support is a verified installable PWA; a native Capacitor
-   project is documented but not shipped (no Android SDK available to
-   build or test one honestly).
-10. Obsidian integration is approval-gated write-back into a vault
+10. Android support is a verified installable PWA; a native Capacitor
+    project is documented but not shipped (no Android SDK available to
+    build or test one honestly).
+11. Obsidian integration is approval-gated write-back into a vault
     folder; reading/sync/retrieval from a vault is not implemented.
-11. Interface language is English; the `language` preference is recorded
+12. Interface language is English; the `language` preference is recorded
     but does not translate the UI. No RTL support yet.
-12. Backups are on-demand: `scripts/backup.py` produces a verified,
+13. Backups are on-demand: `scripts/backup.py` produces a verified,
     restorable backup (the drill in `tests/test_backup.py` destroys the
     database and rebuilds it on every push), but **nothing schedules
     it**, so the recovery point objective is "whenever it was last run".
@@ -117,13 +125,13 @@ required local files. Both behaviors are covered by tests
     written (fine at the 2 MB dataset limit, not at hundreds of
     megabytes), and in local mode `data/memory.json` lives outside the
     database and must be backed up separately.
-13. Usage is bounded per owner (runs/day, dataset count, dataset bytes)
+14. Usage is bounded per owner (runs/day, dataset count, dataset bytes)
     but **no cost in currency is tracked**: there is no billing
     relationship, model tokens are not counted, and serverless execution
     time is not measured. `/api/usage` names those gaps rather than
     hiding them. The daily window is calendar-based (midnight UTC), so a
     burst either side of midnight can exceed the intended daily rate.
-14. Dataset ingestion is CSV only — uploaded as a file or pasted, up to
+15. Dataset ingestion is CSV only — uploaded as a file or pasted, up to
     2 MB and 50,000 rows, held in the database rather than object
     storage. XLSX, JSON, Parquet, and database connectors are not
     implemented, and analysis is in-memory (no DuckDB/Polars), so

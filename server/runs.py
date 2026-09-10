@@ -161,6 +161,31 @@ class RunEngine:
                 ctx[task["role"] + "_result"] = result
         return ctx
 
+    def _reclaim_orphaned_tasks(self, run_id):
+        """Put back any task a crash left marked running.
+
+        A worker killed between tasks leaves nothing behind; killed
+        *during* one it leaves that task marked running forever, and the
+        engine used to walk straight past it to the next pending task.
+        The run then continued without a stage its successors depend on
+        and failed several stages later, with an error naming the wrong
+        thing entirely — a crash mid-stage silently producing a broken
+        run, which is the failure durability was supposed to rule out.
+
+        Reaching this point means nobody holds a live lease on the run
+        (the caller's own, or none), so a task marked running is not
+        being executed by anyone: it is debris. Re-running it is safe
+        because a stage is a pure function of the results before it, and
+        a task's result is written once, at the end.
+        """
+        tasks = self.store.get_tasks(run_id)
+        orphans = [t for t in tasks if t["state"] == "running"]
+        for task in orphans:
+            self.store.update("tasks", task["id"],
+                              {"state": "pending", "summary": None,
+                               "result_json": None})
+        return self.store.get_tasks(run_id) if orphans else tasks
+
     def advance(self, run_id, lease_owner=None):
         """Execute exactly one bounded task; every transition is durable.
 
@@ -180,7 +205,7 @@ class RunEngine:
             raise ValueError(f"Run is {run['state']} and cannot advance.")
         if run["state"] == "awaiting_approval":
             raise ValueError("Run is awaiting approval — decide the approval first.")
-        tasks = self.store.get_tasks(run_id)
+        tasks = self._reclaim_orphaned_tasks(run_id)
         task = next((t for t in tasks if t["state"] == "pending"), None)
         if task is None:
             return self.get_run(run_id)

@@ -127,8 +127,8 @@ and returns fresh state snapshots.
 ├── data/memory.json       # Persistent memory (starts empty)
 ├── tests/                 # Python unittest suite (agent, utils, API,
 │                          # runs, analytics, metric glossary, auth,
-│                          # quotas, backups, worker, model gateway,
-│                          # launcher, docs)
+│                          # quotas, backups, worker, failure injection,
+│                          # model gateway, launcher, docs)
 ├── frontend/
 │   ├── src/
 │   │   ├── app/           # Shell, store, theme
@@ -205,7 +205,7 @@ python main.py
 
 ```bash
 # Python: agent, utils, API, runs, analytics, metrics, auth, quotas,
-# backups, worker, launcher, docs (324 tests)
+# backups, worker, recovery, launcher, docs (335 tests)
 python -m unittest discover tests
 
 # Frontend unit tests (23 tests)
@@ -221,7 +221,7 @@ cd frontend && npm run typecheck
 
 The same suite runs automatically in CI (`.github/workflows/ci.yml`) on
 every push, including the run-engine and backup suites against a real
-PostgreSQL 16 service. Last verified: 324 Python tests, 23 frontend unit
+PostgreSQL 16 service. Last verified: 335 Python tests, 23 frontend unit
 tests, and 38 end-to-end checks (37 executed, 1 desktop-only check
 skipped on the mobile project). In environments with a pre-installed
 browser, point Playwright at it:
@@ -241,8 +241,27 @@ The worker claims a run with a database lease, advances it one task at a
 time, and releases the lease when the run needs a human or ends. It never
 decides an approval — it stops at the gate like any other caller. A
 worker that crashes stops renewing its lease, and the next worker (or an
-open browser) picks the run up from its durable state. Details and
-trade-offs: `docs/adr/0006-durable-execution.md`.
+open browser) picks the run up from its durable state — including the
+stage the crash interrupted, which is re-run rather than skipped. Details
+and trade-offs: `docs/adr/0006-durable-execution.md`.
+
+## Failure injection
+
+`tests/test_recovery.py` breaks things on purpose and asserts the run
+still reaches the approval gate: the database connection is closed
+underneath a lease claim, the server hangs up mid-heartbeat
+(`pg_terminate_backend`), a real worker process is killed with SIGKILL
+mid-stage, and the engine is thrown away and rebuilt mid-run. It runs in
+CI against PostgreSQL like the rest.
+
+These drills found three defects that reasoning had not: the lease
+statements never reconnected, the reconnect caught only one of the two
+ways a connection dies, and a crash *during* a stage left that stage
+marked running forever — so the run continued without it and failed later
+with an unrelated error. A full database outage
+(`pg_ctl stop -m immediate`) was executed by hand with measured recovery
+times, because CI's database is a service container a test cannot stop.
+Findings and numbers: `docs/adr/0012-business-continuity.md`.
 
 ## Backup and restore
 

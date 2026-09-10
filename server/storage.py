@@ -218,7 +218,24 @@ class SqlStore:
                     "AND (lease_owner IS NULL OR lease_expires_at < ?)",
                     (worker_id, expires_at, row["id"], now)):
                 return row["id"]
+            # Zero rows changed usually means another worker got there
+            # first. It can also mean this worker won, the connection
+            # died before the acknowledgement arrived, and the repeat
+            # then failed its own guard — because we are now the holder.
+            # Losing a race and winning one invisibly are different
+            # things, and only the first should end quietly.
+            if self._won_after_a_retry(row["id"], worker_id, expires_at):
+                return row["id"]
         return None
+
+    def _won_after_a_retry(self, run_id, worker_id, expires_at):
+        """Did this exact claim land after all? Matching the expiry we
+        tried to write distinguishes it from an older lease of ours."""
+        rows = self._exec(
+            "SELECT lease_owner, lease_expires_at FROM runs WHERE id = ?",
+            (run_id,))
+        return bool(rows) and (rows[0]["lease_owner"] == worker_id
+                               and rows[0]["lease_expires_at"] == expires_at)
 
     def renew_lease(self, run_id, worker_id, expires_at):
         """Heartbeat. False means the lease was lost and must not be used."""
@@ -408,18 +425,40 @@ class PostgresStore(SqlStore):
         conn.autocommit = True
         return conn
 
-    def _exec(self, sql, params=()):
+    def _retrying(self, statement, sql, params):
+        """Run a statement, reconnecting once if the connection is gone.
+
+        Two different failures land here and both are ordinary. A pooler
+        or a server restart drops the socket, which surfaces as
+        OperationalError on the next statement; a connection this process
+        already closed surfaces as InterfaceError. Catching only the
+        first meant a worker that had been idle — the normal state of a
+        worker — could fail on the statement it woke up to run.
+
+        Retrying is safe because autocommit means there is no transaction
+        to rebuild: each statement stands alone. The one case where a
+        blind repeat could mislead is a conditional UPDATE whose
+        acknowledgement was lost, and `claim_run` checks for that
+        directly rather than trusting the row count.
+        """
         try:
-            return super()._exec(sql, params)
-        except self._psycopg2.OperationalError:
-            # Serverless invocations and poolers drop idle connections;
-            # reconnect once rather than failing a user's request.
+            return statement(sql, params)
+        except (self._psycopg2.OperationalError,
+                self._psycopg2.InterfaceError):
             try:
                 self._conn.close()
             except Exception:
                 pass
             self._conn = self._connect()
-            return super()._exec(sql, params)
+            return statement(sql, params)
+
+    def _exec(self, sql, params=()):
+        return self._retrying(super()._exec, sql, params)
+
+    def _exec_rowcount(self, sql, params=()):
+        # The lease statements run through here, which is to say the
+        # worker's entire job does.
+        return self._retrying(super()._exec_rowcount, sql, params)
 
     def _commit(self):
         pass  # autocommit

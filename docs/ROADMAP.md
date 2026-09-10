@@ -120,7 +120,17 @@ facts reach the narrator.
   telemetry, and backups.
 - **Business continuity:** SLOs and error budgets, point-in-time
   recovery, incident classification and on-call ownership, load/soak/
-  failover/chaos testing, provider-exit procedures.
+  failover/chaos testing, provider-exit procedures. **Partly done
+  (ADR 0012):** failure injection in CI — connection loss on the lease
+  path in both of its forms, a worker killed with SIGKILL mid-stage, and
+  the engine rebuilt mid-run — plus a hand-executed database-outage
+  drill with measured recovery times, and service levels stated from
+  those measurements. It found three real defects, including a crash
+  during a stage silently producing a broken run. **Remaining:** error
+  budgets (which need production traffic and a measurement pipeline
+  that does not exist here), point-in-time recovery and a standby,
+  incident classification and on-call ownership, load and soak testing,
+  and provider-exit procedures.
 - **Supply chain:** SBOM, signed artifacts, build provenance, license
   scanning, pinned actions/packages, vendor registers and contingency.
 - **Android release lifecycle:** Capacitor project, Play App Signing,
